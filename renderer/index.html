@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self' blob:; worker-src 'self' blob:" />
+  <title>RobotConsole</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="explorer.css" />
+  <link rel="stylesheet" href="tools.css" />
+  <link rel="stylesheet" href="ui2.css" />
+  <link rel="stylesheet" href="studio.css" />
+  <link rel="stylesheet" href="screens.css" />
+  <link rel="stylesheet" href="prisma.css" />
+</head>
+<body>
+  <div id="boot" class="boot" role="status" aria-live="polite">
+    <div class="boot-card">
+      <div class="robot boot-bot" id="boot-bot"></div>
+      <div class="boot-title" id="boot-title">Chargement du workspace…</div>
+      <div class="boot-bar"><span></span></div>
+      <div class="boot-step" id="boot-step">Démarrage</div>
+    </div>
+  </div>
+  <header id="topbar">
+    <button id="ws-badge" class="ws-badge"></button>
+    <button id="btn-new-space" class="tb-btn compact" aria-label="Nouvel espace" title="Nouvel espace : terminal, explorateur, tests, Docker, services… (Ctrl+Maj+N : terminal)">＋</button>
+    <button id="btn-layout" class="tb-btn compact" aria-label="Disposition" title="Dispositions suggérées (Ctrl+Maj+L)">⊞</button>
+    <button id="btn-models" class="tb-btn compact" aria-label="Modèles" title="Modèles d'onglet, de zone et d'écran">🧩</button>
+    <div id="crew"></div><button id="btn-new-screen" class="crew-add" title="Créer un set de zones (clic droit : depuis un modèle d'écran) · Ctrl+Alt+← / → pour changer de set" aria-label="Créer un set de zones">＋</button>
+    <div class="tb-spacer"></div>
+    <button id="btn-settings" class="tb-btn ghost" title="Paramètres (Ctrl+,)">⚙</button>
+    <button id="btn-help" class="tb-btn ghost" title="Raccourcis clavier">?</button>
+  </header>
+
+  <main id="spaces"></main>
+
+  <div id="help" class="overlay hidden">
+    <div class="help-card">
+      <h2>Raccourcis et astuces</h2>
+      <table>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Ouvrir un workspace (nouvelle fenêtre)</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>N</kbd></td><td>Nouvel espace terminal</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>T</kbd></td><td>Nouveau terminal dans l'espace actif</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>E</kbd></td><td>Explorateur de fichiers</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>L</kbd></td><td>Dispositions suggérées</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Paramètres</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>W</kbd></td><td>Fermer l'onglet actif</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Onglet suivant (Maj : précédent)</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> · <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd></td><td>Changer d'espace</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>M</kbd></td><td>Agrandir / restaurer l'espace</td></tr>
+        <tr><td colspan="2" class="help-sec">Terminal</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Copier (s'il y a une sélection) / coller</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Rechercher dans le terminal</td></tr>
+        <tr><td>Clic droit</td><td>Menu : copier, coller, effacer, rechercher…</td></tr>
+        <tr><td colspan="2" class="help-sec">Explorateur</td></tr>
+        <tr><td>Double-clic / <kbd>Entrée</kbd></td><td>Modifier le fichier</td></tr>
+        <tr><td><kbd>F2</kbd> · <kbd>Suppr</kbd> · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd></td><td>Renommer · corbeille · copier/couper/coller/dupliquer</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Enregistrer dans l'éditeur</td></tr>
+        <tr><td>Glisser un fichier sur un dossier</td><td>Déplacer (<kbd>Ctrl</kbd> : copier)</td></tr>
+        <tr><td colspan="2" class="help-sec">Espaces et robots</td></tr>
+        <tr><td>Glisser le robot ou le nom</td><td>Ancrer l'espace : la boussole propose gauche, droite, haut, bas ou échange</td></tr>
+        <tr><td>Bordures entre espaces</td><td>Redimensionner (double-clic : à parts égales)</td></tr>
+        <tr><td>Clic sur le robot</td><td>Choisir un autre robot</td></tr>
+        <tr><td>Double-clic sur l'icône d'un onglet (barre des robots)</td><td>Fermer l'onglet</td></tr>
+        <tr><td><b>⤓</b> ou glisser vers la barre des robots</td><td>Ranger l'espace (ses terminaux continuent)</td></tr>
+        <tr><td>Glisser un onglet</td><td>Le réordonner, l'envoyer dans un autre espace (barre d'onglets, robot de la barre du haut) ou créer un espace en le lâchant sur un bord</td></tr>
+        <tr><td>Clic droit sur un onglet</td><td>Renommer, dupliquer, déplacer, enregistrer comme modèle d'onglet…</td></tr>
+        <tr><td>Molette sur les onglets</td><td>Faire défiler les onglets qui débordent</td></tr>
+      </table>
+      <button class="tb-btn" id="help-close">Fermer</button>
+    </div>
+  </div>
+
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
+  <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="ui.js"></script>
+  <script src="tool-icons-data.js"></script>
+  <script src="tool-icons.js"></script>
+  <script src="robot.js"></script>
+  <script src="robot-studio.js"></script>
+  <script src="themes.js"></script>
+  <script src="settings.js"></script>
+  <script src="emoji-data.js"></script>
+  <script src="emoji-picker.js"></script>
+  <script src="tab-models.js"></script>
+  <script src="editor.js"></script>
+  <script src="layout.js"></script>
+  <script src="terminal-tab.js"></script>
+  <script src="explorer-tab.js"></script>
+  <script src="tests-tab.js"></script>
+  <script src="docker-tab.js"></script>
+  <script src="services-tab.js"></script>
+  <script src="browser-tab.js"></script>
+  <script src="../node_modules/@dagrejs/dagre/dist/dagre.min.js"></script>
+  <script src="prisma-diagram.js"></script>
+  <script src="prisma-tab.js"></script>
+  <script src="graphify-tab.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

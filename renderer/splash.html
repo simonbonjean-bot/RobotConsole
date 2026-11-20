@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
+  <title>RobotConsole</title>
+  <link rel="stylesheet" href="splash.css" />
+</head>
+<body>
+  <header class="sp-bar">
+    <div class="sp-brand"><span class="brand-dot"></span>RobotConsole</div>
+    <div class="sp-drag"></div>
+    <button class="sp-win" id="sp-min" title="Réduire" aria-label="Réduire">─</button>
+    <button class="sp-win close" id="sp-close" title="Quitter (Échap)" aria-label="Quitter">✕</button>
+  </header>
+
+  <main class="sp-main">
+    <section class="sp-left">
+      <div class="sp-hero">
+        <div class="robot sp-hero-bot" id="sp-hero-bot"></div>
+        <div>
+          <h1>Bonjour&nbsp;!</h1>
+          <p class="sp-tag" id="sp-desc"></p>
+        </div>
+      </div>
+
+      <div class="sp-actions">
+        <button class="sp-action primary" id="sp-new"><span class="ico">＋</span><span><b>Nouveau workspace</b><small>Choisir ou créer un dossier</small></span></button>
+        <button class="sp-action" id="sp-openfolder"><span class="ico">📂</span><span><b>Ouvrir un dossier…</b><small>Comme workspace</small></span></button>
+        <button class="sp-action" id="sp-restore" hidden><span class="ico">⟲</span><span><b>Reprendre la session</b><small id="sp-restore-sub"></small></span></button>
+        <button class="sp-action" id="sp-blank"><span class="ico">▭</span><span><b>Sans workspace</b><small>Fenêtre vierge</small></span></button>
+      </div>
+
+      <div class="sp-list-head">
+        <h2>Workspaces connus</h2>
+        <input id="sp-filter" type="search" placeholder="Filtrer…" spellcheck="false" />
+      </div>
+      <div class="sp-list" id="sp-list"></div>
+    </section>
+
+    <aside class="sp-right">
+      <h2>À propos</h2>
+      <div class="sp-info" id="sp-info"></div>
+      <h2>Au programme</h2>
+      <ul class="sp-features">
+        <li><span>⌨</span>Terminaux PowerShell, cmd, WSL… dans des espaces glissables</li>
+        <li><span>📁</span>Explorateur, éditeur et vue Git des modifications</li>
+        <li><span>🧪</span>Lanceur de tests, Docker et services surveillés</li>
+        <li><span>🤖</span>Un petit robot par espace et par workspace</li>
+      </ul>
+      <h2>Raccourcis utiles</h2>
+      <table class="sp-keys">
+        <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Ouvrir un workspace</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>N</kbd></td><td>Nouvel espace terminal</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>E</kbd></td><td>Explorateur</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Paramètres</td></tr>
+      </table>
+      <div class="sp-foot">
+        <label class="sp-check"><input type="checkbox" id="sp-show" /> Afficher au démarrage</label>
+      </div>
+    </aside>
+  </main>
+
+  <div class="sp-dlg-layer" id="sp-dlg" hidden>
+    <form class="sp-dlg" id="sp-dlg-form">
+      <h3>Nouveau workspace</h3>
+      <div class="sp-dlg-path" id="sp-dlg-path"></div>
+      <label>Nom<input id="sp-dlg-name" spellcheck="false" /></label>
+      <p class="sp-dlg-hint">Un dossier <code>.robot</code> sera créé pour garder la configuration (robot, modèles, services).</p>
+      <div class="sp-dlg-btns">
+        <button type="button" class="sp-btn" id="sp-dlg-cancel">Annuler</button>
+        <button type="submit" class="sp-btn primary">Créer et ouvrir</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="tool-icons-data.js"></script>
+  <script src="tool-icons.js"></script>
+  <script src="robot.js"></script>
+  <script src="themes.js"></script>
+  <script src="splash.js"></script>
+</body>
+</html>

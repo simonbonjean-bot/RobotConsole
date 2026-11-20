@@ -1,0 +1,123 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+const on = (channel) => (cb) => ipcRenderer.on(channel, (_e, ...args) => cb(...args));
+
+contextBridge.exposeInMainWorld('api', {
+  // Terminaux
+  listShells: () => ipcRenderer.invoke('shells:list'),
+  createPty: (opts) => ipcRenderer.invoke('pty:create', opts),
+  attachPty: (opts) => ipcRenderer.invoke('pty:attach', opts),
+  detachPty: (id) => ipcRenderer.send('pty:detach', id),
+  gcPty: (scope, keep) => ipcRenderer.send('pty:gc', scope, keep),
+  write: (id, data) => ipcRenderer.send('pty:write', id, data),
+  resize: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
+  kill: (id) => ipcRenderer.send('pty:kill', id),
+  onData: on('pty:data'),
+  onExit: on('pty:exit'),
+
+  // Presse-papiers
+  readClipboard: () => ipcRenderer.invoke('clip:read'),
+  writeClipboard: (text) => ipcRenderer.send('clip:write', text),
+
+  // Fenêtre, état et paramètres
+  context: () => ipcRenderer.invoke('win:context'),
+  loadState: () => ipcRenderer.invoke('state:load'),
+  saveState: (state) => ipcRenderer.send('state:save', state),
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (s) => ipcRenderer.send('settings:save', s),
+  home: () => ipcRenderer.invoke('app:home'),
+  setTitleBar: (color, symbolColor) => ipcRenderer.send('app:titlebar', color, symbolColor),
+  newWindow: () => ipcRenderer.send('win:new'),
+  detachSpace: (state, at) => ipcRenderer.send('win:detachSpace', state, at),
+  listWindows: () => ipcRenderer.invoke('win:list'),
+  beginSpaceDrag: (token, state) => ipcRenderer.send('win:beginSpaceDrag', token, state),
+  endSpaceDrag: () => ipcRenderer.send('win:endSpaceDrag'),
+  acceptSpaceDrag: (token) => ipcRenderer.invoke('win:acceptSpaceDrag', token),
+  onSpaceMoved: on('win:spaceMoved'),
+  sendSpaces: (wcId, state) => ipcRenderer.send('win:sendSpaces', wcId, state),
+  dropSpace: (state, sx, sy) => ipcRenderer.invoke('win:dropSpace', state, sx, sy),
+  closeWindowNow: (returnState) => ipcRenderer.send('win:closeNow', returnState),
+  onReceiveSpaces: (cb) => ipcRenderer.on('win:receive', (_e, state) => cb(state)),
+  onCloseRequest: (cb) => ipcRenderer.on('win:closeRequest', () => cb()),
+
+  // Workspaces
+  pickWorkspace: () => ipcRenderer.invoke('ws:pick'),
+  openWorkspace: (root) => ipcRenderer.send('ws:open', root),
+  updateWorkspace: (patch) => ipcRenderer.invoke('ws:update', patch),
+  closeWorkspace: () => ipcRenderer.send('ws:close'),
+  revealWorkspace: () => ipcRenderer.send('ws:reveal'),
+
+  // Fichiers et Git
+  listDir: (dir, opts) => ipcRenderer.invoke('fs:list', dir, opts),
+  readFile: (file, max) => ipcRenderer.invoke('fs:read', file, max),
+  readText: (file) => ipcRenderer.invoke('fs:readText', file),
+  writeText: (file, content) => ipcRenderer.invoke('fs:writeText', file, content),
+  createFile: (file) => ipcRenderer.invoke('fs:createFile', file),
+  mkdir: (dir) => ipcRenderer.invoke('fs:mkdir', dir),
+  rename: (from, to) => ipcRenderer.invoke('fs:rename', from, to),
+  trash: (p) => ipcRenderer.invoke('fs:trash', p),
+  copyItem: (from, toDir) => ipcRenderer.invoke('fs:copy', from, toDir),
+  moveItem: (from, toDir) => ipcRenderer.invoke('fs:move', from, toDir),
+  exists: (p) => ipcRenderer.invoke('fs:exists', p),
+  pickFolder: (start) => ipcRenderer.invoke('fs:pickFolder', start),
+  watch: (id, root) => ipcRenderer.send('fs:watch', id, root),
+  unwatch: (id) => ipcRenderer.send('fs:unwatch', id),
+  onFsChanged: on('fs:changed'),
+  gitStatus: (dir) => ipcRenderer.invoke('git:status', dir),
+  gitDiff: (root, file, code) => ipcRenderer.invoke('git:diff', root, file, code),
+  gitStage: (repo, file) => ipcRenderer.invoke('git:stage', repo, file),
+  gitUnstage: (repo, file) => ipcRenderer.invoke('git:unstage', repo, file),
+  gitDiscard: (repo, file, code) => ipcRenderer.invoke('git:discard', repo, file, code),
+  openPath: (p) => ipcRenderer.send('shell:openPath', p),
+  showItem: (p) => ipcRenderer.send('shell:showItem', p),
+
+  // Services du workspace
+  svcOpen: (root) => ipcRenderer.invoke('svc:open', root),
+  svcStart: (root, id) => ipcRenderer.invoke('svc:start', root, id),
+  svcStop: (root, id) => ipcRenderer.invoke('svc:stop', root, id),
+  svcRestart: (root, id) => ipcRenderer.invoke('svc:restart', root, id),
+  svcSave: (root, defs) => ipcRenderer.invoke('svc:save', root, defs),
+  svcReload: (root) => ipcRenderer.invoke('svc:reload', root),
+  svcSuggest: (root) => ipcRenderer.invoke('svc:suggest', root),
+  onSvcStatus: on('svc:status'),
+
+  // Tests
+  testsDiscover: (root) => ipcRenderer.invoke('tests:discover', root),
+  testsRun: (root, scope, runId) => ipcRenderer.invoke('tests:run', root, scope, runId),
+  testsStop: (runId) => ipcRenderer.send('tests:stop', runId),
+  testsGenerate: (root) => ipcRenderer.invoke('tests:generate', root),
+  testsUpdateSuite: (root, id, patch) => ipcRenderer.invoke('tests:updateSuite', root, id, patch),
+  testsCategories: () => ipcRenderer.invoke('tests:categories'),
+  onTestsOut: on('tests:out'),
+
+  // Docker
+  dockerStatus: (root, opts) => ipcRenderer.invoke('docker:status', root, opts),
+  dockerAction: (root, opts) => ipcRenderer.invoke('docker:action', root, opts),
+  dockerExecCommand: (root, opts) => ipcRenderer.invoke('docker:execCommand', root, opts),
+  dockerLogs: (id, root, opts) => ipcRenderer.send('docker:logs', id, root, opts),
+  dockerStopLogs: (id) => ipcRenderer.send('docker:stopLogs', id),
+  onDockerLogs: on('docker:logs'),
+  onDockerLogsEnd: on('docker:logsEnd'),
+
+  // Graphify
+  graphifyVersion: (force) => ipcRenderer.invoke('graphify:version', force),
+  graphifyStatus: (root) => ipcRenderer.invoke('graphify:status', root),
+  graphifyServe: (root) => ipcRenderer.invoke('graphify:serve', root),
+  graphifyRun: (id, root, mode) => ipcRenderer.send('graphify:run', id, root, mode),
+  graphifyStop: (id) => ipcRenderer.send('graphify:stop', id),
+  onGraphifyOut: on('graphify:out'),
+  onGraphifyEnd: on('graphify:end'),
+
+  // Prisma / base de données
+  prismaInfo: (root, id) => ipcRenderer.invoke('prisma:info', root, id),
+  prismaPing: (root, id) => ipcRenderer.invoke('prisma:ping', root, id),
+  prismaTables: (root, id) => ipcRenderer.invoke('prisma:tables', root, id),
+  prismaRows: (root, id, opts) => ipcRenderer.invoke('prisma:rows', root, id, opts),
+  prismaQuery: (root, id, sql, opts) => ipcRenderer.invoke('prisma:query', root, id, sql, opts),
+  prismaMigrations: (root, id) => ipcRenderer.invoke('prisma:migrations', root, id),
+  prismaMigrationSql: (file) => ipcRenderer.invoke('prisma:migrationSql', file),
+  prismaClose: (root, id) => ipcRenderer.invoke('prisma:close', root, id),
+  prismaDiagramLoad: (root, id) => ipcRenderer.invoke('prisma:diagramLoad', root, id),
+  prismaDiagramSave: (root, id, data) => ipcRenderer.invoke('prisma:diagramSave', root, id, data),
+  prismaDiagramSaveImage: (root, dataUrl) => ipcRenderer.invoke('prisma:diagramSaveImage', root, dataUrl),
+});

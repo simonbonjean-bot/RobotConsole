@@ -1,0 +1,124 @@
+/* RobotConsole — écran de démarrage */
+:root {
+  --bg: #0e1117; --panel: #151a23; --panel-2: #1b2130; --border: #262d3b; --text: #c9d1d9; --muted: #7d8696; --accent: #3fb6f5; --hover: #222a3b;
+  --hero: var(--accent);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+body { display: flex; flex-direction: column; border: 1px solid var(--border); }
+button { font: inherit; color: inherit; }
+h2 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+kbd { display: inline-block; padding: 0 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-2); font: 11px/16px Consolas, monospace; }
+
+/* ---------- Barre de titre ---------- */
+.sp-bar { height: 38px; display: flex; align-items: center; padding-left: 14px; -webkit-app-region: drag; flex: 0 0 auto; }
+.sp-brand { display: flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: .3px; }
+.brand-dot { width: 10px; height: 10px; border-radius: 50%; background: conic-gradient(#ff6b9a, #ffc76b, #6bffb8, #6bc7ff, #b06bff, #ff6b9a); }
+.sp-drag { flex: 1; }
+.sp-win { -webkit-app-region: no-drag; width: 46px; height: 100%; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+.sp-win:hover { background: var(--hover); color: var(--text); }
+.sp-win.close:hover { background: #c42b1c; color: #fff; }
+
+/* ---------- Mise en page ---------- */
+.sp-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; }
+.sp-left { min-height: 0; display: flex; flex-direction: column; padding: 8px 26px 22px; }
+.sp-right { min-height: 0; overflow: auto; padding: 18px 22px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.sp-right h2 { margin-top: 10px; }
+.sp-right h2:first-child { margin-top: 0; }
+
+/* ---------- En-tête ---------- */
+.sp-hero { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+.sp-hero-bot { width: 92px; height: 104px; flex: 0 0 auto; filter: drop-shadow(0 8px 22px color-mix(in srgb, var(--hero) 40%, transparent)); }
+.sp-hero-bot svg { width: auto; height: 100%; }
+.sp-hero h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; background: linear-gradient(90deg, var(--text), var(--hero)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sp-tag { margin: 0; color: var(--muted); max-width: 520px; }
+
+/* ---------- Actions ---------- */
+.sp-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.sp-action { display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); cursor: pointer; transition: border-color .12s, background .12s, transform .12s; }
+.sp-action:hover { border-color: var(--accent); background: var(--hover); transform: translateY(-1px); }
+.sp-action .ico { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border-radius: 8px; background: var(--panel); font-size: 16px; }
+.sp-action b { display: block; font-weight: 600; }
+.sp-action small { display: block; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+.sp-action.primary { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); }
+.sp-action.primary .ico { background: var(--accent); color: var(--bg); font-weight: 700; }
+
+/* ---------- Liste des workspaces ---------- */
+.sp-list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.sp-list-head h2 { margin: 0; }
+#sp-filter { width: 200px; padding: 5px 9px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; outline: none; }
+#sp-filter:focus { border-color: var(--accent); }
+.sp-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+.sp-ws { --ws-accent: var(--accent); display: flex; align-items: center; gap: 12px; padding: 6px 10px 6px 6px; border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+.sp-ws.sel { background: color-mix(in srgb, var(--ws-accent) 10%, var(--panel-2)); border-color: color-mix(in srgb, var(--ws-accent) 45%, transparent); }
+.sp-ws-bot { width: 40px; height: 44px; flex: 0 0 40px; display: flex; justify-content: center; }
+.sp-ws-bot svg { width: auto; height: 100%; }
+.sp-ws-text { flex: 1; min-width: 0; }
+.sp-ws-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-ws.sel .sp-ws-name { color: var(--ws-accent); }
+.sp-ws-path { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-ws-when { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.sp-ws-btn { width: 26px; height: 26px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; color: var(--muted); opacity: 0; font-size: 12px; }
+.sp-ws.sel .sp-ws-btn { opacity: 1; }
+.sp-ws-btn:hover { background: var(--hover); border-color: var(--border); color: var(--text); }
+.sp-empty { padding: 30px 10px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 10px; line-height: 1.6; }
+
+/* ---------- Infos ---------- */
+.sp-info { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.sp-info-row { display: flex; gap: 8px; }
+.sp-info-row .k { width: 70px; flex: 0 0 70px; color: var(--muted); }
+.sp-info-row .v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+.sp-features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.sp-features li { display: flex; gap: 8px; align-items: flex-start; }
+.sp-features span { width: 18px; text-align: center; flex: 0 0 18px; }
+.sp-keys { border-collapse: collapse; font-size: 12px; }
+.sp-keys td { padding: 3px 0; vertical-align: middle; }
+.sp-keys td:first-child { padding-right: 10px; white-space: nowrap; }
+.sp-keys td:last-child { color: var(--muted); }
+.sp-foot { margin-top: auto; padding-top: 14px; }
+.sp-check { display: flex; align-items: center; gap: 7px; color: var(--muted); cursor: pointer; font-size: 12px; }
+.sp-check input { accent-color: var(--accent); margin: 0; }
+
+/* ---------- Dialogue « nouveau workspace » ---------- */
+.sp-dlg-layer { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 10; }
+.sp-dlg-layer[hidden] { display: none; }
+.sp-dlg { width: min(440px, calc(100vw - 40px)); padding: 18px 20px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: 0 20px 60px rgba(0,0,0,.45); animation: pop .15s ease-out; display: flex; flex-direction: column; gap: 10px; }
+.sp-dlg h3 { margin: 0; font-size: 16px; }
+.sp-dlg-path { color: var(--muted); font-size: 12px; word-break: break-all; }
+.sp-dlg label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.sp-dlg input { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: 14px/1.3 inherit; outline: none; }
+.sp-dlg input:focus { border-color: var(--accent); }
+.sp-dlg-hint { margin: 0; font-size: 11.5px; color: var(--muted); }
+.sp-dlg code { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--panel-2); }
+.sp-dlg-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.sp-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; }
+.sp-btn:hover { border-color: var(--muted); }
+.sp-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+@keyframes pop { from { transform: scale(.9); opacity: 0; } }
+
+/* ---------- Robots ---------- */
+.robot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.robot .eyes { transform-box: fill-box; transform-origin: center; animation: blink 5s infinite; animation-delay: var(--blink-delay, 0s); }
+.robot .ant-light { animation: glow 2.4s ease-in-out infinite; }
+.robot .core { animation: glow 3s ease-in-out infinite; }
+.robot .scan { animation: scan 2.6s ease-in-out infinite; }
+.sp-hero-bot svg { animation: float 3s ease-in-out infinite alternate; }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes glow { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes scan { 0%, 100% { transform: translateX(-12px); } 50% { transform: translateX(12px); } }
+@keyframes float { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+
+@media (max-width: 860px) { .sp-main { grid-template-columns: 1fr 250px; } }
+
+/* ---------- Ouverture d'un workspace ---------- */
+.sp-loading { position: fixed; inset: 38px 0 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg) 92%, transparent); animation: sp-fade .15s ease; }
+.sp-loading-card { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 80%; text-align: center; }
+.sp-loading-bot { height: 110px; }
+.sp-loading-bot svg { height: 100%; width: auto; animation: sp-bob 1.1s ease-in-out infinite alternate; }
+.sp-loading-title { font-size: 16px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-loading-bar { width: 180px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.sp-loading-bar span { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--hero); animation: sp-slide 1.1s ease-in-out infinite; }
+.sp-loading-sub { font-size: 12px; color: var(--muted); }
+@keyframes sp-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@keyframes sp-bob { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+@keyframes sp-fade { from { opacity: 0; } }

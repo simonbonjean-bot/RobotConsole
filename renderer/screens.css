@@ -1,0 +1,213 @@
+/* RobotConsole — écrans (bureaux virtuels), fenêtres secondaires, robots avec outil */
+
+/* ---------- Barre des robots groupée par écran ---------- */
+#crew { gap: 6px; }
+.screen-group {
+  display: flex; align-items: center; gap: 3px; padding: 2px 5px 2px 3px; border-radius: 12px; flex: 0 0 auto;
+  border: 1.5px solid var(--border); background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  transition: border-color .15s, background .15s, opacity .15s;
+}
+.screen-group:not(.current) { opacity: .62; border-style: dashed; }
+.screen-group:not(.current):hover { opacity: 1; }
+.screen-group.current { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--panel-2)); box-shadow: 0 0 12px -6px var(--accent); }
+.screen-group.drop-screen { border-color: var(--accent); border-style: solid; opacity: 1; background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.screen-label {
+  min-width: 18px; height: 22px; padding: 0 5px; border-radius: 7px; border: 0; cursor: pointer;
+  background: var(--panel); color: var(--muted); font: 700 11px/22px system-ui; text-align: center;
+}
+.screen-group.current .screen-label { background: var(--accent); color: var(--bg); }
+.screen-label:hover { color: var(--text); }
+.screen-empty { font-size: 10.5px; color: var(--muted); padding: 0 4px; font-style: italic; }
+.crew-add { margin-left: 2px; }
+
+/* Changement d'écran : glissement */
+#spaces.slide-left > .split, #spaces.slide-left > .space { animation: screen-in-left .22s cubic-bezier(.2,.8,.2,1); }
+#spaces.slide-right > .split, #spaces.slide-right > .space { animation: screen-in-right .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes screen-in-left { from { transform: translateX(40px); opacity: 0; } }
+@keyframes screen-in-right { from { transform: translateX(-40px); opacity: 0; } }
+#spaces > .space:has(.browser-pane), #spaces > .split:has(.browser-pane) { animation: none; }
+.screen-flash {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 90; pointer-events: none;
+  display: flex; align-items: center; gap: 12px; padding: 14px 22px; border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,.4);
+  animation: pop .15s ease-out; transition: opacity .35s;
+}
+.screen-flash b { font-size: 30px; color: var(--accent); }
+.screen-flash span { font-size: 16px; font-weight: 600; }
+.screen-flash.out { opacity: 0; }
+.all-parked .ap-actions { margin-top: 14px; }
+
+/* ---------- Fenêtre secondaire ---------- */
+body.secondary-window #ws-badge::after {
+  content: "fenêtre secondaire"; margin-left: 6px; padding: 1px 7px; border-radius: 8px; font-size: 10px; font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); white-space: nowrap;
+}
+.close-choice { flex-wrap: wrap; }
+
+/* ---------- Robots avec un outil à côté (image plus large que haute) ---------- */
+.st-chip .robot, .model-btn .robot, .lt-leaf .robot { width: auto !important; }
+.st-chip .robot svg, .lt-leaf .robot svg { width: auto; height: 100%; }
+.empty .robot { width: auto; height: 150px; }
+.empty .robot svg { width: auto; height: 100%; }
+.pv-empty .robot, .tool-empty .robot { width: auto; }
+.pv-empty .robot svg, .tool-empty .robot svg { width: auto; height: 100%; }
+
+/* Barre du haut : les boutons ne passent jamais sur deux lignes */
+#topbar > .tb-btn, #topbar > .ws-badge, #topbar > .crew-add { white-space: nowrap; flex-shrink: 0; }
+#topbar #crew { flex: 0 1 auto; min-width: 60px; overflow-x: auto; }
+
+#topbar > .tb-btn.compact { width: 30px; height: 28px; padding: 0; display: grid; place-items: center; font-size: 17px; line-height: 1; }
+/* Une hauteur explicite empêche le SVG imbriqué de déborder de la vignette. */
+#crew .crew-bot { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+#crew .crew-bot > .robot { width: 100%; height: 100%; }
+#crew .crew-bot svg { object-fit: contain; }
+#crew .screen-group { padding-top: 0; padding-bottom: 0; }
+#crew .crew-item { padding-top: 0; padding-bottom: 0; }
+
+/* Barre des robots plus haute */
+#topbar { height: 58px; }
+#spaces { inset: 58px 0 0 0 !important; }
+#crew { align-self: stretch; }
+#crew .crew-bot { width: 40px; height: 40px; }
+#crew .crew-bot.has-tool { width: 76px; }
+#crew .screen-group { padding-top: 3px; padding-bottom: 3px; }
+#crew .crew-item { padding-top: 2px; padding-bottom: 2px; }
+#crew .crew-tab { height: 28px; min-width: 28px; font-size: 14px; }
+#crew .screen-label { height: 28px; line-height: 28px; }
+
+/* Icônes plus grandes : barre des robots (en haut) et onglets des zones */
+#crew .crew-tab { height: 34px; min-width: 34px; padding: 0 4px; font-size: 20px; }
+#crew .crew-tab .tm-ico, #crew .crew-tab .kind-docker { font-size: 20px; }
+#crew .crew-tab .kind-term { font-size: 13px; }
+#crew .crew-tab .kind-dir svg { width: 18px; height: 18px; }
+#crew .crew-tab.more { font-size: 12px; }
+#crew .crew-bot { width: 46px; height: 46px; }
+#crew .crew-bot.has-tool { width: 86px; }
+#topbar { height: 62px; }
+#spaces { inset: 62px 0 0 0 !important; }
+
+.tab { height: 34px; }
+.tab-icon { font-size: 18px; line-height: 1; min-width: 20px; justify-content: center; }
+.tab-icon .tm-ico, .tab-icon .kind-docker { font-size: 18px; }
+.tab-icon .kind-term { font-size: 12px; }
+.tab-icon .kind-dir svg { width: 17px; height: 17px; }
+
+/* Icône de zone : en-tête de la zone et barre des robots */
+.space-icon { flex: 0 0 auto; height: 30px; min-width: 30px; padding: 0 3px; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; line-height: 1; }
+.space-icon:hover { background: var(--hover); border-color: var(--space-accent); }
+.space-icon .tm-ico { font-size: 20px; }
+.space-icon .kind-term { font-size: 13px; }
+#crew .crew-zone-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 20px; line-height: 1; padding: 0 2px; }
+#crew .crew-zone-icon .tm-ico { font-size: 20px; }
+#crew .crew-zone-icon .kind-term { font-size: 13px; }
+.space-icon.hidden, #crew .crew-zone-icon.hidden { display: none; }
+.tm-icon-none { color: var(--muted); font-size: 16px; }
+
+/* Écrans espacés qui occupent toute la largeur disponible de la barre */
+#topbar #crew { flex: 1 1 auto; gap: 14px; }
+#crew .screen-group { flex: 1 0 max-content; padding-left: 4px; padding-right: 8px; }
+#topbar .tb-spacer { flex: 0 0 56px; } /* garde une zone pour déplacer la fenêtre */
+
+/* Écrans : chacun garde sa largeur, l'espace libre est réparti ENTRE les écrans ; couleur par écran */
+#topbar #crew { justify-content: space-evenly; gap: 18px; }
+#crew .screen-group { flex: 0 0 auto; position: relative; }
+#crew .screen-group + .screen-group::before {
+  content: ""; position: absolute; left: -10px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px;
+  background: var(--border); pointer-events: none;
+}
+.screen-group { border-color: color-mix(in srgb, var(--screen-color, var(--accent)) 45%, var(--border)); background: color-mix(in srgb, var(--screen-color, var(--accent)) 7%, var(--panel-2)); }
+.screen-group .screen-label { background: color-mix(in srgb, var(--screen-color, var(--accent)) 30%, var(--panel)); color: var(--text); }
+.screen-group.current { border-color: var(--screen-color, var(--accent)); background: color-mix(in srgb, var(--screen-color, var(--accent)) 16%, var(--panel-2)); box-shadow: 0 0 14px -5px var(--screen-color, var(--accent)); }
+.screen-group.current .screen-label { background: var(--screen-color, var(--accent)); color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.35); }
+.screen-group.drop-screen { border-color: var(--screen-color, var(--accent)); background: color-mix(in srgb, var(--screen-color, var(--accent)) 26%, transparent); }
+/* Rappel de la couleur de l'écran affiché, en haut de la zone de travail */
+#spaces::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--screen-color, transparent); z-index: 5; pointer-events: none; }
+/* Choix de couleur */
+.sc-colors { position: fixed; z-index: 99; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.sc-color-grid { display: grid; grid-template-columns: repeat(7, 26px); gap: 6px; }
+.sc-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.sc-swatch:hover { transform: scale(1.12); }
+.sc-swatch.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--panel); }
+.sc-custom { width: 26px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: none; cursor: pointer; }
+.sc-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: middle; }
+
+/* ---------- + « Nouvelle zone » dans chaque set de la barre des robots ---------- */
+.screen-add-zone { flex: 0 0 auto; width: 20px; height: 20px; margin-left: 2px; padding: 0; border-radius: 6px;
+  border: 1px dashed color-mix(in srgb, var(--screen-color, var(--accent)) 55%, var(--border));
+  background: transparent; color: var(--muted); font: 600 14px/1 system-ui; cursor: pointer; opacity: .55; transition: opacity .12s, background .12s, color .12s; }
+.screen-group:hover .screen-add-zone, .screen-group.current .screen-add-zone { opacity: 1; }
+.screen-add-zone:hover { background: color-mix(in srgb, var(--screen-color, var(--accent)) 25%, transparent); color: var(--text); border-style: solid; }
+
+/* ---------- Fenêtre « Nouvelle zone » ---------- */
+.zone-dlg { width: 480px; max-width: calc(100vw - 32px); background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 12px; animation: zone-dlg-in .14s ease-out; }
+.zone-dlg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.zone-dlg-title { font-size: 15px; font-weight: 650; color: var(--text); }
+.zone-dlg-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.zone-dlg-x { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 6px; border-radius: 6px; }
+.zone-dlg-x:hover { background: var(--hover); color: var(--text); }
+.zone-dlg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.zone-type { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel);
+  color: var(--text); cursor: pointer; text-align: left; min-width: 0; font: inherit; }
+.zone-type:hover, .zone-type:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); outline: none; }
+.zt-icon { flex: 0 0 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 17px; border-radius: 7px; background: var(--panel-2); }
+.zt-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.zt-txt b { font-weight: 600; font-size: 13px; }
+.zt-txt small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zone-type kbd { font: 10px/14px Consolas, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.zone-dlg-more { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.zone-dlg-more .tb-btn { font-size: 12px; padding: 4px 9px; }
+@keyframes zone-dlg-in { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+.zone-dlg-layer { z-index: 55; }
+
+/* ---------- Réordonner les écrans (glisser le numéro) ---------- */
+.screen-label[draggable="true"] { cursor: grab; }
+.screen-label[draggable="true"]:active { cursor: grabbing; }
+#crew .screen-group.screen-dragging { opacity: .35; }
+#crew .screen-group.screen-drop-before { box-shadow: -4px 0 0 0 var(--accent); }
+#crew .screen-group.screen-drop-after { box-shadow: 4px 0 0 0 var(--accent); }
+
+/* ---------- Barre des robots qui déborde : défilement horizontal ---------- */
+/* Quand ça déborde, alignement à gauche pour que rien ne soit hors d'atteinte */
+#topbar #crew { overflow-x: auto; overflow-y: hidden; }
+#topbar #crew.overflow { justify-content: flex-start; }
+#topbar #crew::-webkit-scrollbar { height: 4px; }
+#topbar #crew::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 2px; }
+#topbar #crew::-webkit-scrollbar-track { background: transparent; }
+#topbar #crew.can-left { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px); }
+#topbar #crew.can-right { -webkit-mask-image: linear-gradient(to left, transparent 0, #000 28px); }
+#topbar #crew.can-left.can-right { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); }
+#crew .screen-group { scroll-margin: 0 24px; }
+
+/* ---------- Fenêtre « Nouvelle zone » : modèles ---------- */
+.zone-dlg-modelwrap { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border); max-height: 220px; overflow-y: auto; }
+.zone-dlg-sec { display: flex; flex-direction: column; gap: 6px; }
+.zone-dlg-sec-head { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
+.zone-dlg-link { background: transparent; border: 0; color: var(--accent); cursor: pointer; font: inherit; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; padding: 0 2px; }
+.zone-dlg-link:hover { text-decoration: underline; }
+.zone-dlg-models { display: flex; flex-wrap: wrap; gap: 6px; }
+.zone-model { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px 4px 6px; border-radius: 16px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; font: inherit; font-size: 12.5px; }
+.zone-model:hover, .zone-model:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); outline: none; }
+.zm-ico { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; font-size: 15px; line-height: 1; }
+.zm-ico .kind-term { font-size: 11px; }
+.zm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.zm-ws { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 5px; }
+.zone-dlg-none { font-size: 11.5px; color: var(--muted); font-style: italic; }
+#topbar #crew::-webkit-scrollbar-button { display: none; }
+
+/* ---------- Écran plié dans la barre des robots : un petit carré par zone ---------- */
+.screen-fold { flex: 0 0 auto; width: 16px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent;
+  color: var(--muted); font: 600 10px/1 system-ui; cursor: pointer; opacity: 0; transition: opacity .12s, background .12s, color .12s; }
+.screen-group:hover .screen-fold, .screen-group.folded .screen-fold, .screen-fold:focus-visible { opacity: 1; }
+.screen-fold:hover { color: var(--text); background: color-mix(in srgb, var(--screen-color, var(--accent)) 25%, transparent); }
+#crew .screen-group.folded { padding-right: 3px; gap: 4px; }
+.screen-minis { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; max-width: 92px; max-height: 26px; overflow: hidden; }
+.screen-mini { position: relative; width: 10px; height: 10px; padding: 0; border-radius: 3px; cursor: pointer; flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--space-accent, var(--accent)) 70%, #000);
+  background: var(--space-accent, var(--accent)); transition: transform .1s, box-shadow .1s; }
+.screen-mini:hover { transform: scale(1.25); }
+.screen-mini.active { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--text); }
+.screen-mini.parked { background: transparent; opacity: .7; }
+.screen-mini.busy::after { content: ""; position: absolute; inset: -3px; border-radius: 4px; border: 1.5px solid var(--space-accent, var(--accent)); animation: glow .4s ease-in-out infinite; }
+.screen-mini.empty { cursor: default; background: transparent; border-style: dashed; border-color: var(--muted); }
+.screen-mini.empty:hover { transform: none; }
