@@ -48,6 +48,8 @@
   const ARM_OLD = ['tube', 'segment', 'claw'];
   const HATS = new Set(['cap', 'tophat', 'crown', 'beanie', 'mohawk']);
   const HEAD_SCALE = { normal: 1, small: 0.84, big: 1.14 };
+  // Traits animables : chacun a sa case « Animé » (trait anim_<clé>, vrai par défaut)
+  const ANIM_KEYS = ['head', 'headSize', 'eyes', 'mouth', 'antenna', 'ears', 'neck', 'body', 'chest', 'arms', 'legs', 'gear', 'accessory', 'pattern', 'wear', 'finish', 'tool'];
 
   // Outil « auto » : selon le type d'onglet actif de l'espace
   const AUTO_TOOL = { terminal: 'lu:square-terminal', tests: 'lu:flask-conical', docker: 'dv:docker', services: 'lu:zap', prisma: 'dv:prisma', explorer: 'lu:folder-tree', editor: 'lu:file-code', browser: 'lu:globe', graphify: 'lu:network' };
@@ -118,6 +120,7 @@
     if (c3(0.18)) t.eyes = p3(['triple', 'lens', 'mismatched']);
     if (c3(0.12)) t.mouth = p3(['speaker', 'none']);
     if (c3(0.14)) t.accessory = p3(['monocle', 'eyepatch', 'mohawk']);
+    for (const k of ANIM_KEYS) t['anim_' + k] = true;
     return t;
   }
 
@@ -152,6 +155,9 @@
     }
     const SW = `stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round"`;
     const parts = [];
+    // Animation d'un trait : groupe .an-<clé> (animé) ou .still (animations internes coupées)
+    const A = (k) => t['anim_' + k] !== false;
+    const W = (k, html, extra = '') => !html ? '' : A(k) ? `<g class="an an-${k} v-${String(t[k]).replace(/[^\w-]/g, '_')}${extra}">${html}</g>` : `<g class="still">${html}</g>`;
 
     // --- Forme de la tête ---
     let headShape = '', top = 30, halfW = 28;
@@ -185,10 +191,10 @@
     if (t.neck === 'spring') {
       let pts = '';
       for (let i = 0; i <= 6; i++) pts += `${50 + (i === 0 || i === 6 ? 0 : i % 2 ? 5 : -5)},${(74 + i * (10 + nk) / 6).toFixed(1)} `;
-      parts.push(`<rect x="46" y="74" width="8" height="${10 + nk}" fill="${dark}" opacity=".5"/><polyline points="${pts}" fill="none" stroke="${metal}" stroke-width="2.6" stroke-linejoin="round"/>`);
+      parts.push(W('neck', `<rect x="46" y="74" width="8" height="${10 + nk}" fill="${dark}" opacity=".5"/><polyline points="${pts}" fill="none" stroke="${metal}" stroke-width="2.6" stroke-linejoin="round"/>`));
     } else if (t.neck === 'long' && opts.legs) {
-      parts.push(`<rect x="46" y="74" width="8" height="${10 + nk}" fill="${metal}" stroke="${stroke}" stroke-width="2"/><rect x="44" y="${78 + nk / 2}" width="12" height="4" rx="2" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/>`);
-    } else parts.push(`<rect x="45" y="74" width="10" height="10" fill="${metal}" stroke="${stroke}" stroke-width="2"/>`);
+      parts.push(W('neck', `<rect x="46" y="74" width="8" height="${10 + nk}" fill="${metal}" stroke="${stroke}" stroke-width="2"/><rect x="44" y="${78 + nk / 2}" width="12" height="4" rx="2" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/>`));
+    } else parts.push(W('neck', `<rect x="45" y="74" width="10" height="10" fill="${metal}" stroke="${stroke}" stroke-width="2"/>`));
     let viewH = 100;
     if (opts.legs) {
       viewH = 156 + nk;
@@ -197,21 +203,21 @@
       const tire = '#2a2f3a';
 
       // Équipement dans le dos
-      if (t.gear === 'cape') behind.push(`<path d="M${tx + 4} 84 H${tx + tW - 4} L${tx + tW + 10} 146 Q50 139 ${tx - 10} 146 Z" fill="${main2}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M${tx + 4} 84 H${tx + tW - 4} L${tx + tW + 1} 96 H${tx - 1} Z" fill="${dark2}" opacity=".5"/>`);
+      if (t.gear === 'cape') behind.push(W('gear', `<path d="M${tx + 4} 84 H${tx + tW - 4} L${tx + tW + 10} 146 Q50 139 ${tx - 10} 146 Z" fill="${main2}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M${tx + 4} 84 H${tx + tW - 4} L${tx + tW + 1} 96 H${tx - 1} Z" fill="${dark2}" opacity=".5"/>`));
       if (t.gear === 'wings') for (const s of [-1, 1]) {
         const x0 = 50 + s * (tW / 2 - 4), w = tW / 2;
-        behind.push(`<path d="M${x0} 92 Q${50 + s * (w + 22)} 66 ${50 + s * (w + 30)} 80 Q${50 + s * (w + 18)} 90 ${50 + s * (w + 24)} 100 Q${50 + s * (w + 10)} 104 ${x0} 110 Z" fill="${light2}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M${x0 + s * 4} 96 Q${50 + s * (w + 14)} 84 ${50 + s * (w + 24)} 82 M${x0 + s * 4} 102 Q${50 + s * (w + 10)} 96 ${50 + s * (w + 18)} 98" fill="none" stroke="${stroke}" stroke-width="1.2" opacity=".5"/>`);
+        behind.push(W('gear', `<path d="M${x0} 92 Q${50 + s * (w + 22)} 66 ${50 + s * (w + 30)} 80 Q${50 + s * (w + 18)} 90 ${50 + s * (w + 24)} 100 Q${50 + s * (w + 10)} 104 ${x0} 110 Z" fill="${light2}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M${x0 + s * 4} 96 Q${50 + s * (w + 14)} 84 ${50 + s * (w + 24)} 82 M${x0 + s * 4} 102 Q${50 + s * (w + 10)} 96 ${50 + s * (w + 18)} 98" fill="none" stroke="${stroke}" stroke-width="1.2" opacity=".5"/>`, s < 0 ? ' l' : ' r'));
       }
       if (t.gear === 'jetpack') for (const s of [-1, 1]) {
         const cx = s < 0 ? tx - 4 : tx + tW + 4;
-        behind.push(`<rect x="${cx - 5}" y="86" width="10" height="26" rx="5" fill="${light2}" stroke="${stroke}" stroke-width="2"/><path d="M${cx - 4} 112 h8 l-1 4 h-6 z" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><path class="ant-light" d="M${cx - 3} 117 Q${cx} 131 ${cx + 3} 117 Z" fill="#ffb347"/><path d="M${cx - 1.4} 117 Q${cx} 124 ${cx + 1.4} 117 Z" fill="#fff3b0"/>`);
+        behind.push(W('gear', `<rect x="${cx - 5}" y="86" width="10" height="26" rx="5" fill="${light2}" stroke="${stroke}" stroke-width="2"/><path d="M${cx - 4} 112 h8 l-1 4 h-6 z" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><path class="ant-light flame" d="M${cx - 3} 117 Q${cx} 131 ${cx + 3} 117 Z" fill="#ffb347"/><path class="flame" d="M${cx - 1.4} 117 Q${cx} 124 ${cx + 1.4} 117 Z" fill="#fff3b0"/>`));
       }
 
       // Bras
       const arm = (side) => {
         const sx = side < 0 ? tx + 3 : tx + tW - 3;
         const cls = side < 0 ? 'arm arm-l' : 'arm arm-r';
-        const g = (s) => `<g class="${cls}">${s}</g>`;
+        const g = (s) => `<g class="${cls}">${W('arms', s, side < 0 ? ' l' : ' r')}</g>`;
         switch (t.arms) {
           case 'segment': return g(`<rect x="${Math.min(sx, sx + side * 16) + (side < 0 ? 4 : -4)}" y="88" width="10" height="26" rx="5" fill="${main2}" stroke="${stroke}" stroke-width="2" transform="rotate(${side * 14} ${sx} 90)"/><circle cx="${sx + side * 10}" cy="118" r="4.5" fill="${metal}" stroke="${stroke}" stroke-width="2"/>`);
           case 'claw': return g(`<polyline points="${sx},90 ${sx + side * 12},102 ${sx + side * 10},114" fill="none" stroke="${metal}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M${sx + side * 6} 116 l${side * 4} 6 l${side * 6} -4" fill="none" stroke="${stroke}" stroke-width="3" stroke-linecap="round"/>`);
@@ -232,7 +238,7 @@
       const leg = (side) => {
         const lx = 50 + side * (tW / 4);
         const cls = side < 0 ? 'leg leg-l' : 'leg leg-r';
-        const g = (s) => `<g class="${cls}">${s}</g>`;
+        const g = (s) => `<g class="${cls}">${W('legs', s, side < 0 ? ' l' : ' r')}</g>`;
         switch (t.legs) {
           case 'jointed': return g(`<path d="M${lx} 118 v8 l${side * 3} 6 v8" fill="none" stroke="${metal}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${lx}" cy="126" r="3.5" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/><ellipse cx="${lx + side * 4}" cy="143" rx="9" ry="4.5" fill="${dark2}"/>`);
           case 'chunky': return g(`<rect x="${lx - 6}" y="118" width="12" height="20" rx="6" fill="${main2}" stroke="${stroke}" stroke-width="2"/><path d="M${lx - 8} 146 a8 6 0 0 1 16 0 z" fill="${dark2}"/><rect x="${lx - 2}" y="136" width="4" height="6" fill="${metal}"/>`);
@@ -242,25 +248,26 @@
             return g(`<polyline points="${pts}" fill="none" stroke="${metal}" stroke-width="2.8" stroke-linejoin="round"/><rect x="${lx - 9}" y="139" width="18" height="6" rx="3" fill="${dark2}" stroke="${stroke}" stroke-width="1.5"/>`);
           }
           case 'spider': return g(`<path d="M${50 + side * 8} 116 Q${50 + side * 32} 102 ${50 + side * 31} 145" fill="none" stroke="${metal}" stroke-width="4" stroke-linecap="round"/><path d="M${50 + side * 4} 118 Q${50 + side * 19} 112 ${50 + side * 17} 145" fill="none" stroke="${metal}" stroke-width="4" stroke-linecap="round"/><circle cx="${50 + side * 25}" cy="110" r="3" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/><circle cx="${50 + side * 31}" cy="145" r="2.6" fill="${dark2}"/><circle cx="${50 + side * 17}" cy="145" r="2.6" fill="${dark2}"/>`);
-          case 'wheels': return `<g class="leg"><rect x="${lx - 2.5}" y="116" width="5" height="14" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><circle cx="${lx}" cy="138" r="8" fill="${tire}" stroke="${stroke}" stroke-width="2"/><circle cx="${lx}" cy="138" r="3.5" fill="${main2}"/></g>`;
+          case 'wheels': return `<g class="leg">${W('legs', `<rect x="${lx - 2.5}" y="116" width="5" height="14" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><g class="wheel"><circle cx="${lx}" cy="138" r="8" fill="${tire}" stroke="${stroke}" stroke-width="2"/><path d="M${lx} 131.5 V144.5 M${lx - 6.5} 138 H${lx + 6.5}" stroke="${metal}" stroke-width="1.2"/><circle cx="${lx}" cy="138" r="3.5" fill="${main2}"/></g>`)}</g>`;
           default: return g(`<rect x="${lx - 4}" y="118" width="8" height="22" rx="3" fill="${metal}" stroke="${stroke}" stroke-width="2"/><rect x="${lx - 9 + side * 2}" y="138" width="18" height="8" rx="4" fill="${dark2}"/>`);
         }
       };
       if (t.legs === 'unicycle') {
         let spokes = '';
         for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI; spokes += `<line x1="${(50 - Math.cos(a) * 10).toFixed(1)}" y1="${(135 - Math.sin(a) * 10).toFixed(1)}" x2="${(50 + Math.cos(a) * 10).toFixed(1)}" y2="${(135 + Math.sin(a) * 10).toFixed(1)}" stroke="${metal}" stroke-width="1.2"/>`; }
-        back.push(`<g class="leg"><path d="M40 118 L46 124 H54 L60 118" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><rect x="47" y="118" width="6" height="12" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><circle cx="50" cy="135" r="11.5" fill="${tire}" stroke="${stroke}" stroke-width="2"/>${spokes}<circle cx="50" cy="135" r="3.5" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/></g>`);
+        back.push(`<g class="leg">${W('legs', `<path d="M40 118 L46 124 H54 L60 118" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><rect x="47" y="118" width="6" height="12" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><g class="wheel"><circle cx="50" cy="135" r="11.5" fill="${tire}" stroke="${stroke}" stroke-width="2"/>${spokes}<circle cx="50" cy="135" r="3.5" fill="${main2}" stroke="${stroke}" stroke-width="1.5"/></g>`)}</g>`);
       } else if (t.legs === 'tracks') {
         let wheels = '';
         for (let i = 0; i < 4; i++) wheels += `<circle cx="${(tx + 7 + i * (tW - 14) / 3).toFixed(1)}" cy="134" r="4.5" fill="${metal}" stroke="${stroke}" stroke-width="1.2"/>`;
-        back.push(`<g class="leg"><rect x="${tx + 6}" y="116" width="${tW - 12}" height="10" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><rect x="${tx - 4}" y="124" width="${tW + 8}" height="20" rx="10" fill="${tire}" stroke="${stroke}" stroke-width="2"/><rect x="${tx - 1}" y="127" width="${tW + 2}" height="14" rx="7" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="2.5 2.5" opacity=".45"/>${wheels}</g>`);
+        back.push(`<g class="leg">${W('legs', `<rect x="${tx + 6}" y="116" width="${tW - 12}" height="10" fill="${metal}" stroke="${stroke}" stroke-width="1.5"/><rect x="${tx - 4}" y="124" width="${tW + 8}" height="20" rx="10" fill="${tire}" stroke="${stroke}" stroke-width="2"/><rect x="${tx - 1}" y="127" width="${tW + 2}" height="14" rx="7" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="2.5 2.5" opacity=".45" class="tread"/>${wheels}`)}</g>`);
       } else if (t.legs === 'hover') {
-        back.push(`<g class="leg"><path class="ant-light" d="M${tx + 8} 124 L${tx + 2} 146 H${tx + tW - 2} L${tx + tW - 8} 124 Z" fill="${glow}" fill-opacity=".28"/><ellipse cx="50" cy="147" rx="${tW / 2 + 2}" ry="3" fill="${glow}" fill-opacity=".3"/><ellipse cx="50" cy="121" rx="${tW / 2 - 3}" ry="5.5" fill="${dark2}" stroke="${stroke}" stroke-width="2"/><ellipse cx="50" cy="122" rx="${tW / 2 - 10}" ry="2" fill="${glow}"/></g>`);
+        back.push(`<g class="leg">${W('legs', `<path class="ant-light" d="M${tx + 8} 124 L${tx + 2} 146 H${tx + tW - 2} L${tx + tW - 8} 124 Z" fill="${glow}" fill-opacity=".28"/><ellipse cx="50" cy="147" rx="${tW / 2 + 2}" ry="3" fill="${glow}" fill-opacity=".3"/><ellipse cx="50" cy="121" rx="${tW / 2 - 3}" ry="5.5" fill="${dark2}" stroke="${stroke}" stroke-width="2"/><ellipse cx="50" cy="122" rx="${tW / 2 - 10}" ry="2" fill="${glow}"/>`)}</g>`);
       } else back.push(leg(-1), leg(1));
 
       // Torse
-      front.push(bodyShape(tx, 82, tW, 38, headFill));
-      if (t.gear === 'shoulders') for (const s of [-1, 1]) front.push(`<ellipse cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="86" rx="10" ry="6.5" fill="${main2}" stroke="${stroke}" stroke-width="2"/><circle cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="85" r="1.6" fill="${stroke}"/>`);
+      front.push(W('body', bodyShape(tx, 82, tW, 38, headFill)));
+      if (t.gear === 'shoulders') for (const s of [-1, 1]) front.push(W('gear', `<ellipse cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="86" rx="10" ry="6.5" fill="${main2}" stroke="${stroke}" stroke-width="2"/><circle cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="85" r="1.6" fill="${stroke}"/>`, s < 0 ? ' l' : ' r'));
+      const chestAt = front.length;
       switch (t.chest) {
         case 'panel': front.push(`<rect x="37" y="92" width="26" height="18" rx="4" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><circle class="core" cx="44" cy="101" r="3" fill="${glow}"/><rect class="ant-light" x="51" y="97" width="7" height="3" rx="1" fill="${glow}"/><rect x="51" y="102" width="7" height="3" rx="1" fill="${light}" opacity=".7"/>`); break;
         case 'star': {
@@ -270,7 +277,7 @@
         }
         case 'bolt': front.push(`<path class="core" d="M53 90 L43 103 H50 L46 113 L58 98 H51 Z" fill="${glow}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`); break;
         case 'heart': front.push(`<path class="core" d="M50 109 C40 102 42 92 50 96.5 C58 92 60 102 50 109 Z" fill="#ff5c8a" stroke="${stroke}" stroke-width="1.5"/>`); break;
-        case 'gauge': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><path d="M42.5 103 A7.5 7.5 0 0 1 57.5 103" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="1.6 2"/><line class="core" x1="50" y1="102" x2="54.5" y2="95.5" stroke="${glow}" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="102" r="1.8" fill="${glow}"/>`); break;
+        case 'gauge': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><path d="M42.5 103 A7.5 7.5 0 0 1 57.5 103" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="1.6 2"/><line class="needle" x1="50" y1="102" x2="54.5" y2="95.5" stroke="${glow}" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="102" r="1.8" fill="${glow}"/>`); break;
         case 'vents': {
           let v = '';
           for (let i = 0; i < 3; i++) v += `<rect x="39" y="${91 + i * 6}" width="22" height="3.2" rx="1.6" fill="${screen}"/>`;
@@ -278,18 +285,22 @@
         }
         default: front.push(`<circle class="core" cx="50" cy="100" r="${Math.max(5, t.coreR + 2)}" fill="${glow}" stroke="${stroke}" stroke-width="2"/><circle cx="38" cy="112" r="2" fill="${stroke}"/><circle cx="62" cy="112" r="2" fill="${stroke}"/>`);
       }
+      front.push(W('chest', front.splice(chestAt).join('')));
+      const wearAt = front.length;
       if (t.wear === 'rusty') front.push(`<circle cx="${tx + 7}" cy="88" r="3" fill="hsl(24 65% 36%)" opacity=".6"/><circle cx="${tx + tW - 8}" cy="113" r="4" fill="hsl(24 65% 36%)" opacity=".55"/>`);
       if (t.wear === 'scratched') front.push(`<path d="M${tx + 5} 110 l7 4 M${tx + tW - 12} 87 l6 5" stroke="#fff" stroke-width="1" opacity=".5"/>`);
       if (t.wear === 'patched') front.push(`<rect x="${tx + tW - 14}" y="108" width="9" height="8" fill="${light2}" stroke="${stroke}" stroke-width="1"/><circle cx="${tx + tW - 12.5}" cy="109.5" r=".9" fill="${stroke}"/><circle cx="${tx + tW - 6.5}" cy="114.5" r=".9" fill="${stroke}"/>`);
+      front.push(W('wear', front.splice(wearAt).join('')));
 
       parts.push(`<g transform="translate(0 ${nk})">${behind.join('')}<g class="limbs">${back.join('')}</g>${front.join('')}</g>`);
     } else {
-      parts.push(bodyShape(50 - bw / 2, 82, bw, 24, t.finish === 'neon' ? main : dark));
-      parts.push(`<circle class="core" cx="50" cy="92" r="${t.coreR}" fill="${glow}"/>`);
+      parts.push(W('body', bodyShape(50 - bw / 2, 82, bw, 24, t.finish === 'neon' ? main : dark)));
+      parts.push(W('chest', `<circle class="core" cx="50" cy="92" r="${t.coreR}" fill="${glow}"/>`));
     }
 
     // --- Antenne (pas sous un chapeau) ---
     const headStart = parts.length; // tout ce qui suit appartient à la tête (mise à l'échelle)
+    const antAt = parts.length;
     if (!hat) {
       const tp = top;
       switch (t.antenna) {
@@ -305,7 +316,9 @@
       }
     }
 
+    parts.push(W('antenna', parts.splice(antAt).join('')));
     // --- Oreilles ---
+    const earsAt = parts.length;
     const lx = 50 - halfW, rx = 50 + halfW;
     switch (t.ears) {
       case 'bolts': parts.push(`<circle cx="${lx}" cy="54" r="4" fill="${metal}" stroke="${stroke}" stroke-width="2"/><circle cx="${rx}" cy="54" r="4" fill="${metal}" stroke="${stroke}" stroke-width="2"/>`); break;
@@ -316,21 +329,22 @@
       default: break;
     }
 
+    parts.push(W('ears', parts.splice(earsAt).join('')));
     // --- Tête + motif ---
     parts.push(withAttrs(headShape, `fill="${headFill}" ${SW}`));
     const clipped = t.pattern !== 'none' || t.wear === 'rusty' || t.wear === 'scratched';
     if (clipped) defs.push(`<clipPath id="${uid}c">${headShape}</clipPath>`);
     if (t.pattern !== 'none') {
       let p = '';
-      if (t.pattern === 'stripes') for (let y = top + 4; y < 82; y += 9) p += `<rect x="10" y="${y}" width="80" height="3.5" fill="${light2}" opacity=".45"/>`;
+      if (t.pattern === 'stripes') for (let y = top - 5; y < 91; y += 9) p += `<rect x="10" y="${y}" width="80" height="3.5" fill="${light2}" opacity=".45"/>`;
       if (t.pattern === 'spots') for (const [x, y, rr] of [[30, 40, 4], [68, 44, 3], [34, 70, 3.5], [70, 68, 4.5], [56, 34, 2.5]]) p += `<circle cx="${x}" cy="${y}" r="${rr}" fill="${light2}" opacity=".5"/>`;
       if (t.pattern === 'panels') p = `<path d="M10 ${top + 14} H90 M10 72 H90 M32 ${top} V90 M68 ${top} V90" stroke="${stroke}" stroke-width="1.2" opacity=".45"/>`;
       if (t.pattern === 'shine') p = `<ellipse cx="38" cy="${top + 10}" rx="14" ry="5" fill="#fff" opacity=".28" transform="rotate(-20 38 ${top + 10})"/>`;
-      parts.push(`<g clip-path="url(#${uid}c)">${p}</g>`);
+      parts.push(`<g clip-path="url(#${uid}c)">${W('pattern', p)}</g>`);
     }
     // --- Usure de la tête ---
-    if (t.wear === 'rusty') parts.push(`<g clip-path="url(#${uid}c)" fill="hsl(24 65% 36%)">${[[50 - halfW + 5, top + 9, 5], [50 + halfW - 6, 69, 6], [50 + halfW * 0.5, top + 4, 3], [50 - halfW * 0.6, 73, 3.5]].map(([x, y, rr]) => `<circle cx="${x}" cy="${y}" r="${rr}" opacity=".55"/><circle cx="${x + 2}" cy="${y - 1}" r="${rr * 0.45}" fill="hsl(30 75% 48%)" opacity=".5"/>`).join('')}</g>`);
-    if (t.wear === 'scratched') parts.push(`<g clip-path="url(#${uid}c)" stroke="#fff" stroke-width="1" stroke-linecap="round" opacity=".55"><path d="M${50 - halfW + 4} ${top + 9} l9 5 M${50 - halfW + 7} ${top + 6} l8 7 M${50 + halfW - 12} 70 l8 -5 M${50 + halfW - 9} 73 l5 -3"/></g>`);
+    if (t.wear === 'rusty') parts.push(W('wear', `<g clip-path="url(#${uid}c)" fill="hsl(24 65% 36%)">${[[50 - halfW + 5, top + 9, 5], [50 + halfW - 6, 69, 6], [50 + halfW * 0.5, top + 4, 3], [50 - halfW * 0.6, 73, 3.5]].map(([x, y, rr]) => `<circle cx="${x}" cy="${y}" r="${rr}" opacity=".55"/><circle cx="${x + 2}" cy="${y - 1}" r="${rr * 0.45}" fill="hsl(30 75% 48%)" opacity=".5"/>`).join('')}</g>`));
+    if (t.wear === 'scratched') parts.push(W('wear', `<g clip-path="url(#${uid}c)" stroke="#fff" stroke-width="1" stroke-linecap="round" opacity=".55"><path d="M${50 - halfW + 4} ${top + 9} l9 5 M${50 - halfW + 7} ${top + 6} l8 7 M${50 + halfW - 12} 70 l8 -5 M${50 + halfW - 9} 73 l5 -3"/></g>`));
     if (t.head === 'tv') parts.push(`<circle cx="76" cy="44" r="2.2" fill="${stroke}"/><circle cx="76" cy="51" r="2.2" fill="${stroke}"/>`);
 
     // --- Écran du visage ---
@@ -360,7 +374,7 @@
         eyes = `<circle cx="${L1}" cy="${ey}" r="${er}" fill="${eyeColor}"/><circle cx="${R1}" cy="${ey}" r="${er}" fill="${eyeColor}"/><circle cx="${L1 + 1.5}" cy="${ey - 1.5}" r="1.4" fill="#fff" opacity=".85"/><circle cx="${R1 + 1.5}" cy="${ey - 1.5}" r="1.4" fill="#fff" opacity=".85"/>`;
       }
     }
-    parts.push(`<g class="eyes">${eyes}</g>`);
+    parts.push(W('eyes', `<g class="eyes">${eyes}</g>`));
     if (t.cheeks) parts.push(`<circle cx="${L1 - 6}" cy="60" r="3" fill="#ff7a9a" opacity=".55"/><circle cx="${R1 + 6}" cy="60" r="3" fill="#ff7a9a" opacity=".55"/>`);
 
     // --- Bouche ---
@@ -380,24 +394,28 @@
       case 'none': break;
       default: mouth = `<polyline points="41,${my} 44,${my - 2.5} 47,${my + 2.5} 50,${my - 2.5} 53,${my + 2.5} 56,${my - 2.5} 59,${my}" fill="none" stroke="${mc}" stroke-width="2" stroke-linejoin="round"/>`; break;
     }
-    parts.push(`<g class="mouth">${mouth}</g>`);
+    parts.push(W('mouth', `<g class="mouth">${mouth}</g>`));
     if (t.rivets && !hat) parts.push(`<circle cx="36" cy="${top + 5}" r="1.6" fill="${stroke}"/><circle cx="64" cy="${top + 5}" r="1.6" fill="${stroke}"/>`);
 
     // --- Accessoire ---
     const acc = accessory(t.accessory, { top, halfW, L1, R1, ey, gap, main2, dark2, light2, stroke, glow });
-    if (acc) parts.push(acc);
-    if (t.wear === 'patched') parts.push(`<g transform="rotate(-30 ${50 + halfW * 0.55} ${top + 9})"><rect x="${50 + halfW * 0.55 - 8}" y="${top + 6.5}" width="16" height="5" rx="2" fill="#f1d9a6" stroke="#b08a4a" stroke-width="1"/><rect x="${50 + halfW * 0.55 - 2.5}" y="${top + 1}" width="5" height="16" rx="2" fill="#f1d9a6" stroke="#b08a4a" stroke-width="1"/></g>`);
-    if (t.wear === 'stickers') parts.push(`<circle cx="${50 + halfW - 7}" cy="70" r="3.6" fill="#6fd3ff" stroke="#fff" stroke-width="1.3"/><path d="M${50 - halfW + 8} ${top + 4} l1.8 3.6 l4 .6 l-2.9 2.8 l.7 4 l-3.6 -1.9 l-3.6 1.9 l.7 -4 l-2.9 -2.8 l4 -.6 z" fill="#ffd34d" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/>`);
+    if (acc) parts.push(W('accessory', acc));
+    if (t.wear === 'patched') parts.push(W('wear', `<g transform="rotate(-30 ${50 + halfW * 0.55} ${top + 9})"><rect x="${50 + halfW * 0.55 - 8}" y="${top + 6.5}" width="16" height="5" rx="2" fill="#f1d9a6" stroke="#b08a4a" stroke-width="1"/><rect x="${50 + halfW * 0.55 - 2.5}" y="${top + 1}" width="5" height="16" rx="2" fill="#f1d9a6" stroke="#b08a4a" stroke-width="1"/></g>`));
+    if (t.wear === 'stickers') parts.push(W('wear', `<circle cx="${50 + halfW - 7}" cy="70" r="3.6" fill="#6fd3ff" stroke="#fff" stroke-width="1.3"/><path d="M${50 - halfW + 8} ${top + 4} l1.8 3.6 l4 .6 l-2.9 2.8 l.7 4 l-3.6 -1.9 l-3.6 1.9 l.7 -4 l-2.9 -2.8 l4 -.6 z" fill="#ffd34d" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/>`));
 
     // --- Taille de la tête : la tête pivote autour du cou ---
     const hs = HEAD_SCALE[t.headSize] || 1;
-    if (hs !== 1) { const hp = parts.splice(headStart); parts.push(`<g transform="translate(50 78) scale(${hs}) translate(-50 -78)">${hp.join('')}</g>`); }
+    let headG = parts.splice(headStart).join('');
+    if (hs !== 1) headG = `<g transform="translate(50 78) scale(${hs}) translate(-50 -78)">${headG}</g>`;
+    headG = W('head', W('headSize', headG));
+    if (opts.legs && t.neck !== 'short' && A('neck')) headG = `<g class="an an-neckbob v-${t.neck}">${headG}</g>`;
+    parts.push(headG);
 
     // --- Outil ---
     // Les outils restent à côté du robot : lisibles même dans les petites vignettes.
-    if (tool !== 'none') parts.push(`<g class="tool" transform="translate(115 78) scale(1.35)">${toolSvg(tool, { main2, light2, dark2, glow, stroke })}</g>`);
+    if (tool !== 'none') parts.push(W('tool', `<g class="tool" transform="translate(115 78) scale(1.35)">${toolSvg(tool, { main2, light2, dark2, glow, stroke })}</g>`));
 
-    const svg = `<svg viewBox="0 0 ${tool === 'none' ? 100 : 150} ${viewH}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}${parts.join('')}</svg>`;
+    const svg = `<svg viewBox="0 0 ${tool === 'none' ? 100 : 150} ${viewH}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}${W('finish', parts.join(''))}</svg>`;
     return { svg, name: t.name, hue: t.hue, accentHue: t.accentHue, main, glow, dark, blinkDelay: t.blinkDelay.toFixed ? t.blinkDelay.toFixed(2) : t.blinkDelay, traits: t, base, tool };
   }
 
@@ -423,5 +441,5 @@
   // Outils : logos et pictogrammes du catalogue ToolIcons (devicon, simple-icons, lucide)
   function toolSvg(kind, c) { return window.ToolIcons ? window.ToolIcons.robotSvg(kind, c) : ''; }
 
-  window.Robot = { generate, randomSeed, traitsFor, OPTIONS, AUTO_TOOL, LEGS_KEYS };
+  window.Robot = { generate, randomSeed, traitsFor, OPTIONS, AUTO_TOOL, LEGS_KEYS, ANIM_KEYS };
 })();

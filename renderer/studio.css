@@ -33,3 +33,9 @@
 .robot .tool .bulb, .robot .tool .star { animation: glow 2s ease-in-out infinite; }
 .robot.talking .tool { animation: tool-wiggle .3s ease-in-out infinite alternate; transform-box: fill-box; }
 @keyframes tool-wiggle { from { rotate: -4deg; } to { rotate: 6deg; } }
+/* Case « Animé » de chaque trait */
+.st-anim { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); cursor: pointer; user-select: none; }
+.st-anim:hover { color: var(--text); }
+.st-anim input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+/* Vignettes : l'animation ne joue qu'au survol (plus calme et plus léger) */
+.st-chip:not(:hover) .robot g.an, .st-chip:not(:hover) .robot g.an * { animation-play-state: paused; }

@@ -91,6 +91,20 @@
         l.append(c, document.createTextNode(label));
         toggles.appendChild(l);
       }
+      // Animations : l'outil (choisi ailleurs) et un interrupteur général
+      const animRow = (label, checked, onChange, mixed) => {
+        const l = h('label', 'svc-check');
+        const c = h('input');
+        c.type = 'checkbox';
+        c.checked = checked;
+        c.indeterminate = !!mixed;
+        c.addEventListener('change', () => { onChange(c.checked); refresh(); });
+        l.append(c, document.createTextNode(label));
+        toggles.appendChild(l);
+      };
+      animRow("Animer l'outil", t.anim_tool !== false, (v) => { over.anim_tool = v; });
+      const on = Robot.ANIM_KEYS.filter((k) => t['anim_' + k] !== false).length;
+      animRow('Tout animer', on === Robot.ANIM_KEYS.length, (v) => { for (const k of Robot.ANIM_KEYS) over['anim_' + k] = v; }, on > 0 && on < Robot.ANIM_KEYS.length);
     }
 
     function renderChips() {
@@ -109,7 +123,15 @@
           if (Robot.LEGS_KEYS.has(key)) big = true;
           refresh();
         });
-        title.appendChild(dice);
+        // Case « Animé » : active / coupe l'animation de ce trait
+        const anim = h('label', 'st-anim');
+        const ac = h('input');
+        ac.type = 'checkbox';
+        ac.checked = t['anim_' + key] !== false;
+        ac.addEventListener('change', () => { over['anim_' + key] = ac.checked; if (Robot.LEGS_KEYS.has(key)) big = true; refresh(); });
+        anim.title = `Animer : ${opt.label.toLowerCase()}`;
+        anim.append(ac, document.createTextNode('Animé'));
+        title.append(anim, dice);
         sec.appendChild(title);
         const grid = h('div', 'st-grid');
         // Outils et accessoires se voient mieux en pied
