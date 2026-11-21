@@ -79,6 +79,7 @@
       try { fit.fit(); } catch {}
 
       term.onData((d) => {
+        tab.space.lastInput = Date.now(); // pour distinguer l'écho de la frappe d'un vrai travail
         if (tab.exited) { if (d === '\r') start(tab); return; }
         api.write(tab.ptyId, d);
       });

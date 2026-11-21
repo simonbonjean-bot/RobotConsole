@@ -65,6 +65,7 @@
       seed: sp.seed,
       traits: sp.traits || undefined,
       icon: sp.icon || undefined,
+      sound: sp.sound || undefined,
       parked: sp.parked || undefined,
       activeTab: sp.tabs.indexOf(sp.activeTab),
       tabs: sp.tabs.map((t) => ({ kind: t.kind, title: t.customTitle ? t.title : null, model: t.model || undefined, icon: t.icon || undefined, ...kindOf(t).serialize(t) })),
@@ -160,6 +161,54 @@
       space.crewMini?.classList.remove('busy');
     }, 380);
     wsWalk();
+    trackActivity(space);
+  }
+
+  // ---------- Son de fin d'activité ----------
+  // Le robot est « actif » tant que ses onglets produisent de la sortie. Après quelques secondes de silence,
+  // il joue son son. L'écho de la frappe et les sorties trop brèves (invite, complétion) sont ignorés.
+  const MIN_ACTIVITY_MS = 1000;
+  function trackActivity(space) {
+    if (!space.sound) return;
+    const now = Date.now();
+    if (!space.activeSince) {
+      if (now - (space.lastInput || 0) < 300) return; // simple écho de ce qu'on tape
+      space.activeSince = now;
+    }
+    space.lastOutput = now;
+    clearTimeout(space.quietTimer);
+    space.quietTimer = setTimeout(() => activityEnded(space), (space.sound.delay || 5) * 1000);
+  }
+  function activityEnded(space) {
+    const since = space.activeSince;
+    space.activeSince = null;
+    if (!space.sound || !since || !spaces.includes(space)) return;
+    if (space.lastOutput - since < MIN_ACTIVITY_MS) return;
+    playSound(space.sound.id);
+    wave(space);
+    if (!space.parked && space.screenId === activeScreenId) say(space, 'J\'ai fini !', 2200);
+  }
+  const playSound = (id) => RobotSounds.play(id, (Settings.data.robotVolume ?? 70) / 100);
+  function updateSoundBadge(space) {
+    space.soundEl.classList.toggle('hidden', !space.sound);
+    if (space.sound) space.soundEl.title = `Son quand le robot a fini : ${RobotSounds.label(space.sound.id)} (après ${space.sound.delay} s de silence)`;
+  }
+  function soundMenuItems(space) {
+    const cur = space.sound;
+    const setSound = (patch) => {
+      space.sound = patch ? { delay: 5, ...(space.sound || {}), ...patch } : null;
+      if (!space.sound) { clearTimeout(space.quietTimer); space.activeSince = null; }
+      updateSoundBadge(space);
+      save();
+    };
+    return [
+      { title: 'Son quand le robot a fini' },
+      { label: 'Aucun', checked: !cur, action: () => setSound(null) },
+      ...RobotSounds.LIST.map(([id, label]) => ({ label, checked: cur?.id === id, action: () => { setSound({ id }); playSound(id); } })),
+      '-',
+      { label: 'Silence avant le son', icon: '⏱', disabled: !cur, submenu: RobotSounds.DELAYS.map((d) => ({ label: `${d} s`, checked: (cur?.delay || 5) === d, action: () => setSound({ delay: d }) })) },
+      { label: 'Écouter', icon: '▶', disabled: !cur, action: () => playSound(cur.id) },
+    ];
   }
 
   function wave(space) {
@@ -255,6 +304,7 @@
       parked: !!opts.parked,
       traits: opts.traits || null, // réglages de l'atelier (sinon : tirage de la graine)
       icon: opts.icon || null, // icône de la zone (modèle de zone ou choix manuel)
+      sound: opts.sound || null, // son joué quand le robot a fini de travailler : { id, delay }
       screenId: opts.screenId || activeScreenId,
     };
     space.bot = botFor(space);
@@ -267,6 +317,8 @@
     iconEl.title = 'Icône de la zone · cliquer pour la changer';
     const nameEl = h('div', 'space-name');
     nameEl.title = 'Double-clic pour renommer · glisser pour déplacer';
+    const soundEl = h('button', 'space-sound hidden', '🔔');
+    soundEl.addEventListener('click', (e) => { e.stopPropagation(); UI.menu(soundMenuItems(space), soundEl); });
     const tabsEl = h('div', 'tabs');
     // Barre d'onglets défilante : flèches + liste quand les onglets débordent
     const tabsWrap = h('div', 'tabs-wrap');
@@ -301,7 +353,7 @@
     maxBtn.title = 'Agrandir / restaurer (Ctrl+Maj+M)';
     const closeBtn = h('button', 'icon-btn danger', '✕');
     closeBtn.title = "Fermer l'espace (arrête ses terminaux)";
-    head.append(robotEl, iconEl, nameEl, tabsWrap, addWrap, parkBtn, maxBtn, closeBtn);
+    head.append(robotEl, iconEl, nameEl, soundEl, tabsWrap, addWrap, parkBtn, maxBtn, closeBtn);
 
     const host = h('div', 'term-host');
     const empty = h('div', 'empty');
@@ -318,9 +370,10 @@
     const crewIcon = h('span', 'crew-zone-icon');
     const crewTabs = h('div', 'crew-tabs');
     crewItem.append(crewFace, crewIcon, crewTabs);
-    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs });
+    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs });
     applyBot(space);
     applyIcon(space);
+    updateSoundBadge(space);
     fillEmpty(space);
 
     // Défilement des onglets
@@ -413,6 +466,7 @@
       { label: 'Changer de robot…', icon: '🤖', action: () => showRobotPicker(space, space.robotEl) },
       { label: space.icon ? 'Changer l\'icône…' : 'Ajouter une icône…', icon: space.icon ? TabModels.iconHtml(space.icon) : '🏷', action: () => chooseSpaceIcon(space, space.icon ? space.iconEl : space.nameEl) },
       { label: 'Personnaliser le robot (atelier)…', icon: '🛠', action: () => spaceStudio(space) },
+      { label: space.sound ? `Son de fin : ${RobotSounds.label(space.sound.id)}` : 'Son quand le robot a fini…', icon: '🔔', submenu: soundMenuItems(space) },
       { label: 'Ajouter', icon: '＋', submenu: kindItems(space) },
       TabModels.saveMenuItem('zone', () => snapshotSpace(space)),
       { label: 'Sortir dans une nouvelle fenêtre', icon: '🗗', action: () => detachSpace(space) },
@@ -482,7 +536,7 @@
   function receiveSpaces(state) {
     let last = null;
     for (const ss of state.spaces || []) {
-      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, screenId: activeScreenId });
+      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, screenId: activeScreenId });
       for (const t of ss.tabs || []) { const { title, ...spec } = t; openTab(sp, { kind: 'terminal', ...spec }, { title }); }
       const at = sp.tabs[ss.activeTab] || sp.tabs[0];
       if (at) activateTab(at, false);
@@ -2109,7 +2163,7 @@
           activeScreenId = (screens[state.activeScreen] || screens[0]).id;
           screensReady = true;
         }
-        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked, traits: ss.traits, icon: ss.icon, screenId: (screens[ss.screen || 0] || screens[0]).id });
+        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked, traits: ss.traits, icon: ss.icon, sound: ss.sound, screenId: (screens[ss.screen || 0] || screens[0]).id });
         for (const t of ss.tabs || []) {
           const { title, ...spec } = t;
           try { openTab(s, { kind: 'terminal', ...spec }, { title }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }

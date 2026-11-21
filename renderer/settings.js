@@ -28,6 +28,7 @@
     gpuRendering: true,
     showSplash: true,
     language: 'auto',
+    robotVolume: 70,
   };
 
   const FONTS = [
@@ -232,6 +233,7 @@
         section('Robots',
           row('Animations', toggle('robotAnimations'), 'Clignement, bouche qui parle, antenne'),
           row('Bulles de dialogue', toggle('robotBubbles')),
+          row('Volume des sons', range('robotVolume', 0, 100, 5, (v) => `${v} %`), 'Son joué quand un robot a fini (clic droit sur un robot → 🔔)'),
         ),
         section('Explorateur de fichiers',
           row('Afficher les fichiers cachés', toggle('showHidden'), 'Fichiers commençant par un point'),

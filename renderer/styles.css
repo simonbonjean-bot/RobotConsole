@@ -325,3 +325,8 @@ body.dragging-space .space { pointer-events: auto; }
 .boot-step { font-size: 12px; color: var(--muted); min-height: 16px; }
 @keyframes boot-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 @keyframes boot-bob { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+
+/* Cloche : le robot de cet espace joue un son quand il a fini de travailler */
+.space-sound { flex: 0 0 auto; border: 0; background: transparent; padding: 0 2px; font-size: 12px; line-height: 1; cursor: pointer; opacity: .7; filter: grayscale(.3); }
+.space-sound:hover { opacity: 1; filter: none; transform: rotate(-12deg); }
+.space-sound.hidden { display: none; }
