@@ -54,12 +54,36 @@
       const float = UI.floatWebview(view, slot);
       tab.syncBrowser = float.sync;
       tab.disposeBrowser = float.dispose;
-      tab.browser = view; tab.address = input;
+      tab.browser = view; tab.address = input; tab.navigate = navigate;
       navigate(spec.url || 'about:blank');
     },
     activate(tab) { tab.syncBrowser?.(); }, resize(tab) { tab.syncBrowser?.(); }, focus(tab) { tab.address.focus(); },
     dispose(tab) { tab.disposeBrowser(); },
     serialize(tab) { return { url: tab.url }; },
+
+    // Accès à distance (téléphone / tablette) : la page reste affichée sur le PC, le téléphone en voit une capture
+    remoteReadActions: ['shot'],
+    remoteSnapshot(tab) {
+      return { summary: tab.url, actions: [{ id: 'shot', label: '📷 Capture', read: true }, { id: 'reload', label: '⟳ Recharger' }, { id: 'back', label: '← Précédent' }, { id: 'go', label: '↗ Aller à…', prompt: 'Adresse' }], sections: [] };
+    },
+    async remoteAction(tab, action, { value } = {}) {
+      const v = tab.browser;
+      if (action === 'shot') {
+        tab.syncBrowser?.();
+        const img = await v.capturePage();
+        if (!img || img.isEmpty?.()) return { error: 'Page non visible sur le PC (onglet en arrière-plan ?)' };
+        let url;
+        try {
+          const small = img.getSize().width > 1280 ? img.resize({ width: 1280 }) : img;
+          url = 'data:image/jpeg;base64,' + small.toJPEG(75).toString('base64');
+        } catch { url = img.toDataURL(); }
+        return { image: url, title: tab.title };
+      }
+      if (action === 'reload') { v.reload(); return {}; }
+      if (action === 'back') { if (v.canGoBack()) v.goBack(); return {}; }
+      if (action === 'go') { if (!value) return { error: 'Adresse vide' }; tab.navigate(String(value)); return {}; }
+      return { error: 'Action inconnue' };
+    },
   };
   (window.TabKinds = window.TabKinds || {}).browser = BrowserTab;
 })();

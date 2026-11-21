@@ -59,6 +59,30 @@
       return { root: d.root, project: d.projectId, view: d.view, prismaModel: d.model, table: d.table, sqlHistory: d.sqlHistory.slice(0, 30), sql: d.sqlInput?.value || d.sqlText, diagram: d.diagState };
     },
     applyTheme() {},
+
+    // Accès à distance (téléphone / tablette) : consultation seulement (pas de SQL libre)
+    remoteReadActions: ['rows'],
+    async remoteSnapshot(tab) {
+      const d = tab.d;
+      if (d.connOk && !d.tables) { const r = await api.prismaTables(d.root, d.projectId).catch(() => null); if (r?.ok) { d.tables = r.tables; d.defaultSchema = r.defaultSchema; } }
+      const models = new Map((d.info?.models || []).map((m) => [m.dbName, m.name]));
+      return {
+        summary: d.connOk === undefined ? 'Connexion à la base…' : d.connOk ? `Base connectée · ${d.tables?.length ?? '…'} table(s)` : `Base injoignable${d.connError ? ' : ' + d.connError : ''}`,
+        sections: d.tables ? [{ items: d.tables.map((t) => ({
+          id: `${t.schema}|${t.name}`, label: t.name, badge: t.view ? 'vue' : '', detail: models.get(t.name) && models.get(t.name) !== t.name ? `modèle ${models.get(t.name)}` : '',
+          meta: t.estimate ? `≈ ${t.estimate.toLocaleString('fr-FR')} lignes` : '', tap: { id: 'rows', read: true },
+        })) }] : [],
+      };
+    },
+    async remoteAction(tab, action, { item } = {}) {
+      const d = tab.d;
+      if (action !== 'rows') return { error: 'Action inconnue' };
+      const [schema, table] = String(item || '').split('|');
+      if (!d.tables?.some((t) => t.name === table && t.schema === schema)) return { error: 'Table inconnue' };
+      const r = await api.prismaRows(d.root, d.projectId, { table, schema, limit: 50, offset: 0 });
+      if (!r.ok) return { error: r.error };
+      return { title: `${table} · ${r.total?.toLocaleString('fr-FR') ?? r.rows.length} ligne(s)`, table: { columns: r.columns.map((c) => c.name), rows: r.rows.map((row) => row.map((v) => (v === null ? null : String(v).slice(0, 200)))) } };
+    },
   };
 
   const busy = (tab, on) => tab.d.progress.classList.toggle('hidden', !on);

@@ -62,6 +62,32 @@
       g.float.dispose();
     },
     serialize(tab) { return { root: tab.g.root, view: tab.g.view }; },
+
+    // Accès à distance (téléphone / tablette)
+    remoteSnapshot(tab) {
+      const g = tab.g, s = g.status;
+      const ok = g.cli?.ok;
+      const parts = [];
+      if (g.runId) parts.push('Construction en cours…');
+      else if (g.cli && !ok) parts.push('graphify n\'est pas installé');
+      else if (s?.stats) parts.push(`${s.stats.nodes.toLocaleString('fr-FR')} nœuds`, `${s.stats.links.toLocaleString('fr-FR')} liens`, ...(s.stats.communities ? [`${s.stats.communities} communautés`] : []));
+      if (!g.runId && s?.updated) parts.push(`màj ${new Date(s.updated).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`);
+      const log = g.log.textContent || '';
+      return {
+        summary: parts.join(' · ') || (s ? 'Aucun graphe' : 'Lecture…'),
+        busy: !!g.runId,
+        actions: g.runId ? [{ id: 'stop', label: '■ Arrêter', danger: true }] : ok ? [{ id: 'build', label: '▶ Construire' }, ...(s?.json ? [{ id: 'update', label: '↻ Mettre à jour' }] : [])] : [],
+        sections: [],
+        text: g.runId || g.view === 'log' ? log.slice(-6000) : (s?.report || '').slice(0, 20000),
+        textTitle: g.runId || g.view === 'log' ? 'Journal' : s?.report ? 'Rapport' : '',
+      };
+    },
+    remoteAction(tab, action) {
+      const g = tab.g;
+      if (action === 'stop') { if (g.runId) api.graphifyStop(g.runId); return {}; }
+      if (action === 'build' || action === 'update') { if (g.runId) return { error: 'Déjà en cours' }; start(tab, action); return { toast: 'Graphify lancé' }; }
+      return { error: 'Action inconnue' };
+    },
   };
 
   function setView(tab, view, silent) {

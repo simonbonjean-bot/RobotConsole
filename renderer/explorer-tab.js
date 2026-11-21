@@ -126,7 +126,63 @@
     },
 
     applyTheme() {},
+
+    // Accès à distance (téléphone / tablette) : navigation propre au téléphone, sans toucher à la vue du PC
+    remoteReadActions: ['cd', 'up', 'view', 'diff', 'view:changes', 'view:tree'],
+    async remoteSnapshot(tab) {
+      const ex = tab.ex;
+      const dir = inRoot(ex, ex.remoteDir) ? ex.remoteDir : ex.root;
+      const rel = dir.length > ex.root.length ? dir.slice(ex.root.length).replace(/^[\\/]+/, '') : '';
+      const GS = { M: 'warn', A: 'ok', U: 'ok', D: 'bad', R: 'warn', C: 'bad' };
+      const head = { summary: `${baseName(ex.root)}${rel ? ' / ' + rel.replace(/\\/g, ' / ') : ''}${ex.git?.isRepo ? ` · ⎇ ${ex.git.branch}` : ''}`, tabs: ex.git?.isRepo ? [{ id: 'view:tree', label: 'Fichiers', on: ex.remoteView !== 'changes' }, { id: 'view:changes', label: `Modifications (${Object.keys(ex.git.files).length})`, on: ex.remoteView === 'changes' }] : null };
+      if (ex.remoteView === 'changes' && ex.git?.isRepo) {
+        const top = ex.git.repoRoot;
+        return { ...head, sections: [{ items: Object.entries(ex.git.files).map(([p, info]) => ({
+          id: p, label: p.slice(top.length).replace(/^[\\/]+/, ''), status: GS[info.code], badge: GIT_LABEL[info.code] + (info.staged ? ' · indexé' : ''),
+          actions: [
+            ...(info.code !== 'D' ? [{ id: 'diff', label: '± Diff', read: true }] : []),
+            ...(info.staged ? [{ id: 'unstage', label: '− Retirer de l\'index' }] : [{ id: 'stage', label: '＋ Indexer' }]),
+          ],
+        })) }] };
+      }
+      let entries = [];
+      try { entries = await api.listDir(dir, { showHidden: Settings.data.showHidden }); } catch {}
+      return {
+        ...head,
+        actions: rel ? [{ id: 'up', label: '⬑ Dossier parent', read: true }] : [],
+        sections: [{ items: entries.slice(0, 400).map((e) => {
+          const code = ex.gitMap.get(norm(e.path));
+          return {
+            id: e.path, label: (e.isDir ? '📁 ' : '') + e.name, status: code ? GS[code] : e.isDir && ex.dirty.has(norm(e.path)) ? 'warn' : undefined,
+            badge: code ? GIT_LABEL[code] : '', meta: e.isDir ? '' : fmtSize(e.size), tap: { id: e.isDir ? 'cd' : 'view', read: true },
+            actions: code && code !== 'D' && !e.isDir ? [{ id: 'diff', label: '± Diff', read: true }] : [],
+          };
+        }) }],
+      };
+    },
+    async remoteAction(tab, action, { item } = {}) {
+      const ex = tab.ex;
+      if (action === 'view:tree' || action === 'view:changes') { ex.remoteView = action.slice(5); return {}; }
+      if (action === 'up') { const cur = inRoot(ex, ex.remoteDir) ? ex.remoteDir : ex.root; ex.remoteDir = norm(cur) === norm(ex.root) ? ex.root : parent(cur); return {}; }
+      const p = String(item || '');
+      if (!inRoot(ex, p) && !(ex.git?.isRepo && inRoot({ root: ex.git.repoRoot }, p))) return { error: 'Chemin hors du dossier' };
+      if (action === 'cd') { ex.remoteDir = p; return {}; }
+      if (action === 'view') {
+        const r = await api.readFile(p, 512 * 1024);
+        if (r.kind === 'image') return { image: r.dataUrl, title: baseName(p) };
+        if (r.kind !== 'text') return { error: 'Fichier binaire' };
+        return { text: r.content + (r.truncated ? '\n… (tronqué)' : ''), title: baseName(p) };
+      }
+      const repo = ex.git?.repoRoot;
+      const code = ex.git?.files?.[Object.keys(ex.git?.files || {}).find((k) => norm(k) === norm(p))]?.code;
+      if (!repo || !code) return { error: 'Pas de modification Git' };
+      if (action === 'diff') { const d = await api.gitDiff(repo, p, code); return { text: d.content || '(aucune différence)', title: `± ${baseName(p)}`, diff: !d.untracked }; }
+      if (action === 'stage') { await api.gitStage(repo, p); await refresh(tab, true); return { toast: 'Fichier indexé' }; }
+      if (action === 'unstage') { await api.gitUnstage(repo, p); await refresh(tab, true); return { toast: 'Fichier retiré de l\'index' }; }
+      return { error: 'Action inconnue' };
+    },
   };
+  const inRoot = (ex, p) => { if (!p || !ex.root || /(^|[\\/])\.\.([\\/]|$)/.test(p)) return false; const r = norm(ex.root), q = norm(p); return q === r || q.startsWith(r.endsWith('\\') || r.endsWith('/') ? r : r + sep(ex.root)); };
 
   // ---------- Dossier racine ----------
   async function setRoot(tab, root, first) {

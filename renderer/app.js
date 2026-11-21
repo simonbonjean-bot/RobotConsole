@@ -66,6 +66,8 @@
       traits: sp.traits || undefined,
       icon: sp.icon || undefined,
       sound: sp.sound || undefined,
+      remote: sp.remote && sp.remote !== 'off' ? sp.remote : undefined,
+      rid: sp.rid,
       parked: sp.parked || undefined,
       activeTab: sp.tabs.indexOf(sp.activeTab),
       tabs: sp.tabs.map((t) => ({ kind: t.kind, title: t.customTitle ? t.title : null, model: t.model || undefined, icon: t.icon || undefined, ...kindOf(t).serialize(t) })),
@@ -193,23 +195,76 @@
     space.soundEl.classList.toggle('hidden', !space.sound);
     if (space.sound) space.soundEl.title = `Son quand le robot a fini : ${RobotSounds.label(space.sound.id)} (après ${space.sound.delay} s de silence)`;
   }
-  function soundMenuItems(space) {
-    const cur = space.sound;
-    const setSound = (patch) => {
-      space.sound = patch ? { delay: 5, ...(space.sound || {}), ...patch } : null;
-      if (!space.sound) { clearTimeout(space.quietTimer); space.activeSince = null; }
-      updateSoundBadge(space);
-      save();
-    };
-    return [
-      { title: 'Son quand le robot a fini' },
-      { label: 'Aucun', checked: !cur, action: () => setSound(null) },
-      ...RobotSounds.LIST.map(([id, label]) => ({ label, checked: cur?.id === id, action: () => { setSound({ id }); playSound(id); } })),
-      '-',
-      { label: 'Silence avant le son', icon: '⏱', disabled: !cur, submenu: RobotSounds.DELAYS.map((d) => ({ label: `${d} s`, checked: (cur?.delay || 5) === d, action: () => setSound({ delay: d }) })) },
-      { label: 'Écouter', icon: '▶', disabled: !cur, action: () => playSound(cur.id) },
-    ];
+  // ---------- Accès à distance : robots « ouverts » au téléphone / à la tablette ----------
+  let remoteOn = false;
+  function updateRemoteBadge(space) {
+    const open = space.remote !== 'off';
+    space.remoteEl.classList.toggle('hidden', !open);
+    space.remoteEl.classList.toggle('off', open && !remoteOn);
+    if (open) space.remoteEl.title = (space.remote === 'control' ? 'Ouvert à distance : contrôle' : 'Ouvert à distance : lecture seule') + (remoteOn ? '' : ' (serveur désactivé dans les réglages)');
   }
+  function setRemote(space, mode) { space.remote = mode; updateRemoteBadge(space); save(); publishRemote(true); }
+  let lastPublished = '';
+  function publishRemote(force) {
+    const robots = spaces.filter((sp) => sp.remote !== 'off').map((sp) => ({
+      key: sp.rid, name: sp.name, svg: sp.bot.svg, mode: sp.remote, color: sp.bot.color || undefined,
+      tabs: sp.tabs.map((t) => ({ id: t.id, kind: t.kind, title: t.title, icon: (KIND_INFO[t.kind]?.icon || '').replace(/<[^>]*>/g, ''), sessionId: t.kind === 'terminal' ? t.ptyId || undefined : undefined, exited: t.exited || undefined, active: t === sp.activeTab || undefined })),
+    }));
+    const json = JSON.stringify(robots);
+    if (!force && json === lastPublished) return;
+    lastPublished = json;
+    api.remotePublish(robots);
+  }
+  setInterval(publishRemote, 2000);
+  async function refreshRemoteState() {
+    try { const i = await api.remoteInfo(); remoteOn = !!i.running || !!i.relay?.connected; } catch { remoteOn = false; }
+    spaces.forEach(updateRemoteBadge);
+  }
+  api.onRemoteChanged(refreshRemoteState);
+  refreshRemoteState();
+  const findTab = (id) => { for (const sp of spaces) for (const t of sp.tabs) if (t.id === id) return t; return null; };
+  const remoteTimers = new Map(); // tabId -> minuteur d'aperçu
+  async function sendSnapshot(tabId) {
+    const tab = findTab(tabId);
+    if (!tab || tab.space.remote === 'off') return;
+    let snap = null;
+    try { snap = kindOf(tab).remoteSnapshot ? await kindOf(tab).remoteSnapshot(tab) : null; } catch (e) { snap = { error: String(e.message || e) }; }
+    api.remoteSnapshot(tabId, trSnap(snap || { unavailable: true }));
+  }
+  // Langue de l'interface : traduit les libellés de l'application (jamais les contenus : noms, fichiers, sorties)
+  const tr = (s) => (typeof s === 'string' && s && window.I18n?.lang !== 'fr' ? I18n.translate(s) : s);
+  function trSnap(snap) {
+    if (!snap || window.I18n?.lang === 'fr') return snap;
+    const acts = (l) => l?.forEach((a) => { a.label = tr(a.label); a.prompt = tr(a.prompt); });
+    snap.summary = tr(snap.summary); snap.textTitle = tr(snap.textTitle); snap.error = tr(snap.error);
+    acts(snap.actions); acts(snap.tabs);
+    for (const sec of snap.sections || []) {
+      sec.title = tr(sec.title); acts(sec.actions);
+      for (const it of sec.items || []) { it.badge = tr(it.badge); it.logLabel = tr(it.logLabel); acts(it.actions); }
+    }
+    return snap;
+  }
+  api.onRemoteWatch((tabId, on) => {
+    clearInterval(remoteTimers.get(tabId));
+    remoteTimers.delete(tabId);
+    if (!on) return;
+    sendSnapshot(tabId);
+    remoteTimers.set(tabId, setInterval(() => sendSnapshot(tabId), 2000));
+  });
+  api.onRemoteAction(async (reqId, tabId, action, args) => {
+    const tab = findTab(tabId);
+    let result;
+    const readOk = tab && tab.space.remote === 'read' && (kindOf(tab).remoteReadActions || []).includes(action);
+    if (!tab || (tab.space.remote !== 'control' && !readOk)) result = { error: 'Robot en lecture seule' };
+    else if (action === 'activate') { activateTab(tab, true); result = {}; }
+    else if (!kindOf(tab).remoteAction) result = { error: 'Action non disponible' };
+    else {
+      try { result = (await kindOf(tab).remoteAction(tab, action, args || {})) || {}; } catch (e) { result = { error: String(e.message || e) }; }
+    }
+    if (result) { result.error = tr(result.error); result.toast = tr(result.toast); }
+    api.remoteActionResult(reqId, result);
+    setTimeout(() => sendSnapshot(tabId), 150);
+  });
 
   function wave(space) {
     space.robotEl.classList.remove('hello');
@@ -305,6 +360,8 @@
       traits: opts.traits || null, // réglages de l'atelier (sinon : tirage de la graine)
       icon: opts.icon || null, // icône de la zone (modèle de zone ou choix manuel)
       sound: opts.sound || null, // son joué quand le robot a fini de travailler : { id, delay }
+      remote: ['read', 'control'].includes(opts.remote) ? opts.remote : 'off', // accès depuis un téléphone / une tablette
+      rid: /^[a-z0-9]{6,16}$/.test(opts.rid || '') && !spaces.some((x) => x.rid === opts.rid) ? opts.rid : Math.random().toString(36).slice(2, 10), // identifiant stable (lien / QR code du robot)
       screenId: opts.screenId || activeScreenId,
     };
     space.bot = botFor(space);
@@ -318,7 +375,9 @@
     const nameEl = h('div', 'space-name');
     nameEl.title = 'Double-clic pour renommer · glisser pour déplacer';
     const soundEl = h('button', 'space-sound hidden', '🔔');
-    soundEl.addEventListener('click', (e) => { e.stopPropagation(); UI.menu(soundMenuItems(space), soundEl); });
+    soundEl.addEventListener('click', (e) => { e.stopPropagation(); showRobotPicker(space, robotEl, 'sound'); });
+    const remoteEl = h('button', 'space-remote hidden', '📡');
+    remoteEl.addEventListener('click', (e) => { e.stopPropagation(); showRobotPicker(space, robotEl, 'share'); });
     const tabsEl = h('div', 'tabs');
     // Barre d'onglets défilante : flèches + liste quand les onglets débordent
     const tabsWrap = h('div', 'tabs-wrap');
@@ -353,7 +412,7 @@
     maxBtn.title = 'Agrandir / restaurer (Ctrl+Maj+M)';
     const closeBtn = h('button', 'icon-btn danger', '✕');
     closeBtn.title = "Fermer l'espace (arrête ses terminaux)";
-    head.append(robotEl, iconEl, nameEl, soundEl, tabsWrap, addWrap, parkBtn, maxBtn, closeBtn);
+    head.append(robotEl, iconEl, nameEl, soundEl, remoteEl, tabsWrap, addWrap, parkBtn, maxBtn, closeBtn);
 
     const host = h('div', 'term-host');
     const empty = h('div', 'empty');
@@ -370,10 +429,11 @@
     const crewIcon = h('span', 'crew-zone-icon');
     const crewTabs = h('div', 'crew-tabs');
     crewItem.append(crewFace, crewIcon, crewTabs);
-    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs });
+    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, remoteEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs });
     applyBot(space);
     applyIcon(space);
     updateSoundBadge(space);
+    updateRemoteBadge(space);
     fillEmpty(space);
 
     // Défilement des onglets
@@ -466,8 +526,9 @@
       { label: 'Changer de robot…', icon: '🤖', action: () => showRobotPicker(space, space.robotEl) },
       { label: space.icon ? 'Changer l\'icône…' : 'Ajouter une icône…', icon: space.icon ? TabModels.iconHtml(space.icon) : '🏷', action: () => chooseSpaceIcon(space, space.icon ? space.iconEl : space.nameEl) },
       { label: 'Personnaliser le robot (atelier)…', icon: '🛠', action: () => spaceStudio(space) },
-      { label: space.sound ? `Son de fin : ${RobotSounds.label(space.sound.id)}` : 'Son quand le robot a fini…', icon: '🔔', submenu: soundMenuItems(space) },
+      { label: space.sound ? `Son de fin : ${RobotSounds.label(space.sound.id)}` : 'Son quand le robot a fini…', icon: '🔔', action: () => showRobotPicker(space, space.robotEl, 'sound') },
       { label: 'Ajouter', icon: '＋', submenu: kindItems(space) },
+      { label: space.remote === 'off' ? 'Accès à distance…' : `Accès à distance : ${space.remote === 'control' ? 'contrôle' : 'lecture seule'}`, icon: '📡', action: () => showRobotPicker(space, space.robotEl, 'share') },
       TabModels.saveMenuItem('zone', () => snapshotSpace(space)),
       { label: 'Sortir dans une nouvelle fenêtre', icon: '🗗', action: () => detachSpace(space) },
       { label: 'Déplacer vers une autre fenêtre…', icon: '⧉', action: () => { const r = space.robotEl.getBoundingClientRect(); moveToWindowMenu(space, r.left, r.bottom + 4); } },
@@ -536,7 +597,7 @@
   function receiveSpaces(state) {
     let last = null;
     for (const ss of state.spaces || []) {
-      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, screenId: activeScreenId });
+      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, screenId: activeScreenId });
       for (const t of ss.tabs || []) { const { title, ...spec } = t; openTab(sp, { kind: 'terminal', ...spec }, { title }); }
       const at = sp.tabs[ss.activeTab] || sp.tabs[0];
       if (at) activateTab(at, false);
@@ -1270,11 +1331,119 @@
     };
     slotBot.addEventListener('click', () => setPane('robot'));
     slotTool.addEventListener('click', () => setPane('tool'));
+    // Réglages du robot : son de fin et partage (téléphone / tablette)
+    const extra = h('div', 'rp-extra');
+    const xSound = h('button', 'rp-xbtn');
+    const xShare = h('button', 'rp-xbtn');
+    extra.append(xSound, xShare);
+    xSound.addEventListener('click', () => setPane('sound'));
+    xShare.addEventListener('click', () => setPane('share'));
+    const renderExtra = () => {
+      xSound.innerHTML = '<span class="rp-x-ico">🔔</span><span class="rp-x-txt"><b>Son de fin</b><small></small></span>';
+      xSound.querySelector('small').textContent = space.sound ? `${RobotSounds.label(space.sound.id)} · ${space.sound.delay || 5} s` : 'Aucun';
+      xShare.innerHTML = '<span class="rp-x-ico">📡</span><span class="rp-x-txt"><b>Partage</b><small></small></span>';
+      xShare.querySelector('small').textContent = { off: 'Fermé', read: 'Lecture seule', control: 'Contrôle' }[space.remote] + (space.remote !== 'off' && !remoteOn ? ' · serveur arrêté' : '');
+    };
 
     const body = h('div', 'rp-body');
     const paneBot = h('div', 'rp-pane rp-pane-bot');
     const paneTool = h('div', 'rp-pane rp-pane-tool');
-    body.append(paneBot, paneTool);
+    const paneSound = h('div', 'rp-pane rp-pane-sound');
+    const paneShare = h('div', 'rp-pane rp-pane-share');
+    body.append(paneBot, paneTool, paneSound, paneShare);
+
+    // ---- 🔔 Son quand le robot a fini de travailler ----
+    const renderSound = () => {
+      paneSound.innerHTML = '';
+      paneSound.appendChild(h('div', 'rp-help', 'Son joué quand les terminaux de cet espace ont fini de travailler (après un moment de silence).'));
+      const setSound = (patch) => {
+        space.sound = patch ? { delay: 5, ...(space.sound || {}), ...patch } : null;
+        if (!space.sound) { clearTimeout(space.quietTimer); space.activeSince = null; }
+        updateSoundBadge(space);
+        save();
+        renderSound();
+        renderExtra();
+      };
+      const list = h('div', 'rp-choices');
+      const choice = (label, on, fn) => { const b = h('button', 'tb-btn' + (on ? ' active' : '')); b.textContent = label; b.addEventListener('click', fn); list.appendChild(b); };
+      choice('∅ Aucun', !space.sound, () => setSound(null));
+      for (const [id, label] of RobotSounds.LIST) choice(label, space.sound?.id === id, () => { setSound({ id }); playSound(id); });
+      paneSound.appendChild(list);
+      if (!space.sound) return;
+      const row = h('div', 'rp-row');
+      row.appendChild(h('span', 'rp-row-lbl', 'Silence avant le son'));
+      for (const d of RobotSounds.DELAYS) {
+        const b = h('button', 'rp-cat' + ((space.sound.delay || 5) === d ? ' on' : ''), `${d} s`);
+        b.addEventListener('click', () => setSound({ delay: d }));
+        row.appendChild(b);
+      }
+      paneSound.appendChild(row);
+      const play = h('button', 'tb-btn', '▶ Écouter');
+      play.addEventListener('click', () => playSound(space.sound.id));
+      const f = h('div', 'rp-pane-foot');
+      f.appendChild(play);
+      paneSound.appendChild(f);
+    };
+
+    // ---- 📡 Partage : ouvrir le robot au téléphone / à la tablette, avec son propre QR code ----
+    let shareIp = null;
+    const renderShare = async () => {
+      const seq = (paneShare.seq = (paneShare.seq || 0) + 1);
+      paneShare.innerHTML = '';
+      paneShare.appendChild(h('div', 'rp-help', 'Rendez les onglets de ce robot accessibles depuis un téléphone ou une tablette (réseau local ou VPN).'));
+      const modes = h('div', 'rp-choices');
+      for (const [m, label, tip] of [
+        ['off', '∅ Fermé', 'Invisible à distance'],
+        ['read', '👁 Lecture seule', 'Voir les terminaux et les onglets, sans rien modifier'],
+        ['control', '🎮 Contrôle', 'Taper dans les terminaux et lancer des actions (tests, services, Docker…)'],
+      ]) {
+        const b = h('button', 'tb-btn' + (space.remote === m ? ' active' : ''), label);
+        b.title = tip;
+        b.addEventListener('click', () => { setRemote(space, m); renderShare(); renderExtra(); });
+        modes.appendChild(b);
+      }
+      paneShare.appendChild(modes);
+      if (space.remote === 'off') return;
+      const info = await api.remoteRobotInfo(space.rid).catch(() => null);
+      if (seq !== paneShare.seq) return;
+      if (!info?.running) {
+        const box = h('div', 'rp-share-off');
+        const msg = h('div', '');
+        msg.textContent = info?.error || 'Le serveur d\'accès à distance est arrêté.';
+        box.appendChild(msg);
+        const on = h('button', 'tb-btn primary', '▶ Activer le serveur');
+        on.addEventListener('click', async () => { await api.remoteSet({ enabled: true }); await refreshRemoteState(); renderShare(); renderExtra(); });
+        const set = h('button', 'tb-btn', '⚙ Réglages…');
+        set.addEventListener('click', () => { robotPicker.classList.add('hidden'); Settings.open('remote'); });
+        const acts = h('div', 'rp-choices');
+        acts.append(on, set);
+        box.appendChild(acts);
+        paneShare.appendChild(box);
+        return;
+      }
+      if (!info.urls.length) { paneShare.appendChild(h('div', 'rp-help', 'Aucune adresse réseau détectée.')); return; }
+      const u = info.urls.find((x) => x.address === shareIp) || info.urls[0];
+      const box = h('div', 'rp-share');
+      const qr = h('div', 'rp-qr');
+      qr.innerHTML = u.qr || '';
+      const side = h('div', 'rp-share-side');
+      const help = h('div', 'rp-help');
+      help.textContent = `Scannez pour ouvrir directement « ${space.name} »${space.remote === 'control' ? ' en contrôle' : ' en lecture seule'}.`;
+      side.appendChild(help);
+      if (info.urls.length > 1) {
+        const sel = h('select', 'set-input small');
+        for (const x of info.urls) { const o = h('option'); o.value = x.address; o.textContent = `${x.address} · ${/^100\./.test(x.address) ? 'VPN' : x.name}`; sel.appendChild(o); }
+        sel.value = u.address;
+        sel.addEventListener('change', () => { shareIp = sel.value; renderShare(); });
+        side.appendChild(sel);
+      } else { const c = h('code', 'rp-addr'); c.textContent = `${u.address}:${info.port}`; side.appendChild(c); }
+      const copy = h('button', 'tb-btn', '⧉ Copier le lien');
+      copy.title = 'Le lien contient le jeton secret : ne le partagez pas';
+      copy.addEventListener('click', () => { api.writeClipboard(u.url); UI.toast('Lien copié'); });
+      side.appendChild(copy);
+      box.append(qr, side);
+      paneShare.appendChild(box);
+    };
 
     const foot = h('div', 'rp-foot');
     const studio = h('button', 'tb-btn', '🛠 Atelier…');
@@ -1286,14 +1455,20 @@
     done.addEventListener('click', () => robotPicker.classList.add('hidden'));
     foot.append(studio, park, h('span', 'rp-spacer'), done);
 
-    robotPicker.append(head, body, foot);
+    robotPicker.append(head, extra, body, foot);
 
     const setPane = (p) => {
       pickerPane = p;
       slotBot.classList.toggle('on', p === 'robot');
       slotTool.classList.toggle('on', p === 'tool');
+      xSound.classList.toggle('on', p === 'sound');
+      xShare.classList.toggle('on', p === 'share');
       paneBot.classList.toggle('hidden', p !== 'robot');
       paneTool.classList.toggle('hidden', p !== 'tool');
+      paneSound.classList.toggle('hidden', p !== 'sound');
+      paneShare.classList.toggle('hidden', p !== 'share');
+      if (p === 'sound') renderSound();
+      if (p === 'share') renderShare();
       if (p === 'tool') setTimeout(() => search.focus(), 0);
     };
 
@@ -1410,6 +1585,7 @@
 
     renderBotSlot();
     renderToolSlot();
+    renderExtra();
     fillBots();
     renderQuick();
     renderCats();
@@ -2163,7 +2339,7 @@
           activeScreenId = (screens[state.activeScreen] || screens[0]).id;
           screensReady = true;
         }
-        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked, traits: ss.traits, icon: ss.icon, sound: ss.sound, screenId: (screens[ss.screen || 0] || screens[0]).id });
+        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, screenId: (screens[ss.screen || 0] || screens[0]).id });
         for (const t of ss.tabs || []) {
           const { title, ...spec } = t;
           try { openTab(s, { kind: 'terminal', ...spec }, { title }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }

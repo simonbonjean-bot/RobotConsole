@@ -188,6 +188,133 @@
     return sec;
   }
 
+  // Accès à distance : serveur local pour piloter les robots « ouverts » depuis un téléphone / une tablette
+  function remoteSection() {
+    const sec = el('section', 'set-section');
+    sec.id = 'set-remote';
+    sec.appendChild(el('h3', '', 'Accès à distance (téléphone, tablette)'));
+    sec.appendChild(el('p', 'set-help', 'Ouvre une page web pour voir les onglets des robots <b>ouverts</b> (clic sur un robot → 📡 Partage) depuis un autre appareil. À utiliser sur le <b>réseau local</b> ou via un VPN (Tailscale, ZeroTier) : n\'exposez pas ce port sur Internet. Le lien contient un jeton secret : ne le partagez pas.'));
+    const body = el('div', 'remote-set');
+    sec.appendChild(body);
+    const render = (info) => {
+      body.innerHTML = '';
+      const sw = el('span', 'switch');
+      const c = el('input');
+      c.type = 'checkbox';
+      c.checked = !!info.enabled;
+      sw.append(c, el('span', 'knob'));
+      c.addEventListener('change', async () => render(await window.api.remoteSet({ enabled: c.checked })));
+      body.appendChild(row('Activer le serveur', sw, info.running ? `En écoute sur le port ${info.port} · ${info.clients} appareil(s) connecté(s)` : info.error || 'Arrêté'));
+      const port = el('input', 'set-input small');
+      port.type = 'number'; port.min = 1024; port.max = 65535; port.value = info.port || 7777;
+      port.addEventListener('change', async () => render(await window.api.remoteSet({ port: +port.value })));
+      body.appendChild(row('Port', port));
+      if (!info.running) return;
+      if (!info.urls.length) { body.appendChild(el('p', 'set-help', 'Aucune adresse réseau détectée.')); return; }
+      const box = el('div', 'remote-box');
+      const qr = el('div', 'remote-qr');
+      const list = el('div', 'remote-urls');
+      const show = (u) => {
+        qr.innerHTML = info.qrs?.[u.address] || '';
+        list.querySelectorAll('.remote-url').forEach((x) => x.classList.toggle('active', x.dataset.ip === u.address));
+      };
+      for (const u of info.urls) {
+        const r = el('div', 'remote-url');
+        r.dataset.ip = u.address;
+        const label = el('button', 'remote-ip');
+        label.innerHTML = `<b></b><small></small>`;
+        label.querySelector('b').textContent = `${u.address}:${info.port}`;
+        label.querySelector('small').textContent = /^100\./.test(u.address) ? `${u.name} · VPN (Tailscale ?)` : u.name;
+        label.addEventListener('click', () => show(u));
+        const copy = el('button', 'icon-btn', '⧉');
+        copy.title = 'Copier le lien (avec le jeton)';
+        copy.addEventListener('click', () => { window.api.writeClipboard(u.url); UI.toast('Lien copié'); });
+        r.append(label, copy);
+        list.appendChild(r);
+      }
+      const regen = el('button', 'tb-btn', '↻ Régénérer le jeton');
+      regen.title = 'Les appareils connectés devront rescanner le QR code';
+      regen.addEventListener('click', async () => render({ ...(await window.api.remoteRegen()), enabled: true }));
+      list.appendChild(regen);
+      box.append(qr, list);
+      body.appendChild(box);
+      body.appendChild(el('p', 'set-help', 'Scannez le QR code avec le téléphone (même Wi-Fi ou même VPN). Si la page ne s\'ouvre pas, autorisez RobotConsole dans le pare-feu Windows (réseaux privés).'));
+      show(info.urls[0]);
+    };
+    window.api.remoteInfo().then(render).catch(() => {});
+    return sec;
+  }
+
+  // Relais auto-hébergé : accès depuis n'importe quel réseau, avec un compte, chiffré de bout en bout
+  function relaySection() {
+    const sec = el('section', 'set-section');
+    sec.id = 'set-relay';
+    sec.appendChild(el('h3', '', 'Relais (accès depuis internet)'));
+    sec.appendChild(el('p', 'set-help', 'Un relais <b>robotconsole-relay</b> hébergé sur un serveur (VPS) permet d\'atteindre vos robots ouverts depuis n\'importe quel réseau, sans VPN ni port à ouvrir. Le PC et les téléphones se connectent avec le même compte ; tout est chiffré de bout en bout et chaque nouveau téléphone doit être approuvé ici.'));
+    const body = el('div', 'remote-set');
+    sec.appendChild(body);
+    const fmt = (t) => (t ? new Date(t).toLocaleString() : '—');
+    const render = (st, busy) => {
+      body.innerHTML = '';
+      if (!st.linked) {
+        const url = el('input', 'set-input');
+        url.placeholder = 'https://relay.mondomaine.fr';
+        url.value = st.url || '';
+        url.addEventListener('keydown', (e) => e.stopPropagation());
+        const go = el('button', 'tb-btn primary', busy ? 'En attente du navigateur…' : 'Se connecter…');
+        go.disabled = !!busy;
+        go.addEventListener('click', async () => {
+          if (!url.value.trim()) return url.focus();
+          render({ ...st, url: url.value }, true);
+          const r = await window.api.relayLogin(url.value);
+          if (r.error) UI.toast(r.error, { kind: 'error', ms: 6000 });
+          render(r);
+        });
+        const r = el('div', 'relay-login');
+        r.append(url, go);
+        body.appendChild(row('Adresse du relais', r, 'Le navigateur s\'ouvre pour vous connecter à votre compte et autoriser ce PC'));
+        if (st.error) { const e = el('p', 'set-help relay-err'); e.textContent = st.error; body.appendChild(e); }
+        return;
+      }
+      const sw = el('span', 'switch');
+      const c = el('input');
+      c.type = 'checkbox';
+      c.checked = st.enabled;
+      sw.append(c, el('span', 'knob'));
+      c.addEventListener('change', async () => render(await window.api.relayEnable(c.checked)));
+      const state = st.connected ? `Connecté à ${st.url}` : st.enabled ? (st.error || 'Connexion…') : 'Désactivé';
+      body.appendChild(row('Utiliser le relais', sw, state));
+      const who = el('div', 'relay-who');
+      who.innerHTML = '<span></span>';
+      who.firstChild.textContent = `${st.user?.email || ''} · ce PC : ${st.deviceName || ''}`;
+      const out = el('button', 'tb-btn', 'Se déconnecter');
+      out.title = 'Délie ce PC du compte (les téléphones ne le verront plus)';
+      out.addEventListener('click', async () => { if (await UI.confirm('Se déconnecter du relais ?', 'Ce PC sera délié de votre compte. Il faudra se reconnecter pour l\'utiliser à nouveau.', { ok: 'Se déconnecter', danger: true })) render(await window.api.relayLogout()); });
+      who.appendChild(out);
+      body.appendChild(row('Compte', who));
+      const list = el('div', 'relay-phones');
+      if (!st.phones.length) list.appendChild(el('p', 'set-help', 'Aucun téléphone appairé. Ouvrez l\'adresse du relais sur le téléphone, connectez-vous et choisissez ce PC : une demande d\'approbation apparaîtra ici.'));
+      for (const p of st.phones) {
+        const r = el('div', 'relay-phone');
+        const n = el('span', '');
+        n.textContent = `${p.online ? '🟢 ' : ''}${p.name}`;
+        const d = el('small', '');
+        d.textContent = `appairé le ${fmt(p.added)} · vu ${fmt(p.seen)}`;
+        const rm = el('button', 'icon-btn danger', '✕');
+        rm.title = 'Oublier cet appareil (il devra être approuvé à nouveau)';
+        rm.addEventListener('click', async () => render(await window.api.relayForgetPhone(p.id)));
+        r.append(n, d, rm);
+        list.appendChild(r);
+      }
+      body.appendChild(el('div', 'set-label', 'Téléphones et tablettes appairés'));
+      body.appendChild(list);
+    };
+    const refresh = () => window.api.relayStatus().then((s) => { if (sec.isConnected || !sec.parentNode) render(s); }).catch(() => {});
+    refresh();
+    window.api.onRemoteChanged(() => { if (sec.isConnected && !sec.querySelector('.relay-login button[disabled]')) refresh(); });
+    return sec;
+  }
+
   function section(title, ...rows) {
     const s = el('section', 'set-section');
     s.appendChild(el('h3', '', title));
@@ -242,6 +369,8 @@
         ),
       );
       body.appendChild(favoritesSection());
+      body.appendChild(remoteSection());
+      body.appendChild(relaySection());
       // Les modèles d'onglet ont leur propre fenêtre (bouton 🧩 Modèles) : simple raccourci ici
       const tm = el('section', 'set-section');
       tm.id = 'set-templates';

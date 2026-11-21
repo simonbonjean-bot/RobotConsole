@@ -105,6 +105,41 @@
       return { root: t.root, watch: t.watch || undefined, show: t.show, outOpen: t.outOpen, expanded: [...t.expanded].slice(0, 300) };
     },
     applyTheme(tab) { tab.t.term.options.theme = Themes.terminal(tab.space.bot); },
+
+    // Accès à distance (téléphone / tablette)
+    remoteSnapshot(tab) {
+      const t = tab.t;
+      const c = counts(t);
+      const total = c.passed + c.failed + c.skipped + c.idle + c.running;
+      const SC = { passed: 'ok', failed: 'bad', running: 'warn', skipped: 'off', idle: 'off' };
+      const suites = [...(t.index?.values() || [])].filter((n) => n.kind === 'suite-root');
+      const failed = [...t.status].filter(([, s]) => s === 'failed').map(([id]) => t.index?.get(id)).filter((n) => n && n.kind === 'test').slice(0, 60);
+      // Fin de la sortie (dernières lignes du terminal de sortie)
+      const buf = t.term.buffer.active;
+      const lines = [];
+      for (let i = Math.max(0, buf.length - 60); i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) || '');
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      return {
+        summary: `✓ ${c.passed} · ✗ ${c.failed} · ○ ${c.skipped} / ${total}${t.running ? ' · en cours…' : t.lastRun ? ` · ${UI.fmtDuration(t.lastRun.duration)}` : ''}`,
+        busy: !!t.running,
+        actions: t.running ? [{ id: 'stop', label: '■ Arrêter', danger: true }] : [{ id: 'runAll', label: '▶ Tout lancer' }, ...(c.failed ? [{ id: 'runFailed', label: '↻ Relancer les échecs' }] : [])],
+        sections: [
+          ...(failed.length ? [{ title: 'Échecs', items: failed.map((n) => { const r = resultFor(t, n); return { id: n.id, label: n.name, status: 'bad', detail: [n.parent?.name, r?.message ? String(r.message).split('\n')[0].slice(0, 200) : ''].filter(Boolean).join(' — '), actions: t.running ? [] : [{ id: 'runNode', label: '▶' }] }; }) }] : []),
+          { title: 'Suites', items: suites.map((n) => { const st = nodeStatus(t, n); const k = counts(t, [n]); return { id: n.id, label: n.name, status: SC[st], badge: LABEL[st], meta: `✓ ${k.passed} · ✗ ${k.failed} · ○ ${k.skipped}`, actions: t.running ? [] : [{ id: 'runNode', label: '▶ Lancer' }] }; }) },
+        ],
+        text: lines.join('\n'),
+        textTitle: 'Sortie',
+      };
+    },
+    remoteAction(tab, action, { item } = {}) {
+      const t = tab.t;
+      if (action === 'stop') { if (t.running) api.testsStop(t.running); return {}; }
+      if (t.running) return { error: 'Des tests sont déjà en cours' };
+      if (action === 'runAll') run(tab, { all: true });
+      else if (action === 'runFailed') runFailed(tab);
+      else if (action === 'runNode') { const n = t.index?.get(item); if (!n) return { error: 'Test introuvable' }; run(tab, scopeFor(n)); }
+      return { toast: 'Tests lancés' };
+    },
   };
 
   function fitOut(tab) { if (tab.t.outWrap.classList.contains('open') && tab.pane.offsetParent) { try { tab.t.fit.fit(); } catch {} } }

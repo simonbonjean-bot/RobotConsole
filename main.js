@@ -13,6 +13,8 @@ const Tests = require('./main/tests');
 const Docker = require('./main/docker');
 const Prisma = require('./main/prisma');
 const Graphify = require('./main/graphify');
+const Remote = require('./main/remote');
+const Relay = require('./main/relay');
 
 const APP_NAME = 'RobotConsole';
 const APP_ID = 'RobotConsole.App';
@@ -161,7 +163,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     if (!quitting && windows.size > 1) { windows.delete(wcId); rememberWindows(); }
     else rememberWindows();
   });
-  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); });
+  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); });
   win.on('resized', rememberWindows);
   win.on('moved', rememberWindows);
   rememberWindows();
@@ -189,16 +191,101 @@ ptyHost.onData = (id, data) => {
   outBuf.set(id, (outBuf.get(id) || '') + data);
   if (!outTimer) outTimer = setTimeout(() => {
     outTimer = null;
-    for (const [k, v] of outBuf) sendTo(k, 'pty:data', v);
+    for (const [k, v] of outBuf) { sendTo(k, 'pty:data', v); remote.onData(k, v); }
     outBuf.clear();
   }, 8);
 };
 ptyHost.onExit = (id, code) => {
   const pending = outBuf.get(id);
-  if (pending) { sendTo(id, 'pty:data', pending); outBuf.delete(id); }
+  if (pending) { sendTo(id, 'pty:data', pending); remote.onData(id, pending); outBuf.delete(id); }
   sendTo(id, 'pty:exit', code);
+  remote.onExit(id, code);
   services.onExit(id, code);
 };
+
+ptyHost.onResize = (id, cols, rows) => remote.onResize(id, cols, rows);
+
+// ---------- Accès à distance (téléphone / tablette) ----------
+const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null });
+function remoteSettings() {
+  const s = readJson(dataFile('settings.json'), {}) || {};
+  const r = { enabled: false, port: 7777, token: '', ...(s.remote || {}) };
+  if (!r.token) { r.token = Remote.newToken(); writeJson(dataFile('settings.json'), { ...s, remote: r }); }
+  return r;
+}
+let remoteKey = '';
+async function applyRemote() {
+  const r = remoteSettings();
+  const key = r.enabled ? `${r.port}|${r.token}` : '';
+  if (key === remoteKey) return;
+  const prev = remoteKey;
+  remoteKey = key;
+  if (!r.enabled) return remote.stop();
+  if (prev && prev.split('|')[0] === String(r.port) && remote.running) return remote.setToken(r.token);
+  await remote.start({ port: r.port, token: r.token });
+}
+const notifyRemote = () => { for (const w of windows.values()) if (!w.win.isDestroyed()) w.win.webContents.send('remote:changed'); };
+ipcMain.on('remote:publish', (e, robots) => remote.publish(e.sender.id, robots));
+ipcMain.on('remote:snapshot', (e, tabId, snap) => remote.snapshot(e.sender.id, tabId, snap));
+ipcMain.on('remote:actionResult', (_e, reqId, result) => remote.actionResult(reqId, result));
+// Relais auto-hébergé : le PC s'y connecte en sortie, les téléphones du même compte passent par lui
+const relay = new Relay({
+  dataDir: app.getPath('userData'), remote, files: Remote.file, deviceName: os.hostname(),
+  onChange: () => notifyRemote(),
+  // Nouveau téléphone : approbation sur le PC, avec le code affiché des deux côtés
+  approve: async ({ name, code, changed }) => {
+    const win = BrowserWindow.getFocusedWindow() || [...windows.values()][0]?.win;
+    if (win?.isMinimized()) win.restore();
+    win?.show(); win?.focus();
+    const r = await dialog.showMessageBox(win, {
+      type: changed ? 'warning' : 'question',
+      title: APP_NAME,
+      message: changed ? I18n.t('Un appareil connu se présente avec une nouvelle clé : {0}', name) : I18n.t('Nouvel appareil : {0}', name),
+      detail: [
+        I18n.t('Un téléphone ou une tablette veut accéder à vos robots ouverts via le relais.'),
+        `${I18n.t('Code affiché sur l\'appareil :')}  ${code}`,
+        I18n.t('N\'autorisez que si le même code s\'affiche sur votre appareil.'),
+      ].join('\n\n'),
+      buttons: [I18n.t('Autoriser'), I18n.t('Refuser')], defaultId: 1, cancelId: 1, noLink: true,
+    });
+    return r.response === 0;
+  },
+});
+ipcMain.handle('relay:status', () => relay.status());
+ipcMain.handle('relay:login', async (_e, url) => {
+  try { return await relay.login(url, (u) => shell.openExternal(u)); } catch (e) { return { ...relay.status(), error: String(e.message || e) }; }
+});
+ipcMain.handle('relay:logout', () => relay.logout());
+ipcMain.handle('relay:enable', (_e, on) => relay.setEnabled(on));
+ipcMain.handle('relay:forgetPhone', (_e, id) => { relay.forgetPhone(String(id || '')); return relay.status(); });
+
+ipcMain.handle('remote:robotInfo', async (_e, rid) => {
+  rid = String(rid || '');
+  const local = await remote.robotInfo(rid);
+  const link = relay.robotLink(rid);
+  if (!link) return local;
+  const QRCode = require('qrcode');
+  const viaRelay = { name: I18n.t('Relais (internet)'), address: new URL(relay.cfg.url).host, url: link, relay: true, qr: await QRCode.toString(link, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '') };
+  return { ...local, running: true, port: local.port, urls: [viaRelay, ...(local.urls || [])] };
+});
+ipcMain.handle('remote:info', async () => ({ ...(await remote.info()), enabled: remoteSettings().enabled, relay: relay.status() }));
+ipcMain.handle('remote:regen', async () => {
+  const s = readJson(dataFile('settings.json'), {}) || {};
+  writeJson(dataFile('settings.json'), { ...s, remote: { ...remoteSettings(), token: Remote.newToken() } });
+  await applyRemote();
+  notifyRemote();
+  return remote.info();
+});
+ipcMain.handle('remote:set', async (_e, patch) => {
+  const s = readJson(dataFile('settings.json'), {}) || {};
+  const r = { ...remoteSettings(), ...pick(patch || {}, ['enabled', 'port'].filter((k) => k in (patch || {}))) };
+  r.port = Math.min(65535, Math.max(1024, r.port | 0 || 7777));
+  r.enabled = !!r.enabled;
+  writeJson(dataFile('settings.json'), { ...s, remote: r });
+  await applyRemote();
+  notifyRemote();
+  return { ...(await remote.info()), enabled: r.enabled };
+});
 
 ipcMain.handle('shells:list', () => SHELLS.map(({ id, label }) => ({ id, label })));
 ipcMain.handle('pty:create', async (e, { id, shellId, cols, rows, cwd, init, scope }) => {
@@ -250,7 +337,11 @@ const statePathFor = (e) => { const { ws, winId } = ctxOf(e); return statePath(w
 ipcMain.handle('state:load', (e) => readJson(statePathFor(e), null));
 ipcMain.on('state:save', (e, state) => { if (!ctxOf(e).closed) writeJson(statePathFor(e), state); });
 ipcMain.handle('settings:load', () => readJson(dataFile('settings.json'), null));
-ipcMain.on('settings:save', (_e, s) => writeJson(dataFile('settings.json'), s));
+ipcMain.on('settings:save', (_e, s) => {
+  // Les réglages d'accès à distance (jeton…) sont gérés ici, pas par la fenêtre
+  const cur = readJson(dataFile('settings.json'), {}) || {};
+  writeJson(dataFile('settings.json'), { ...s, remote: cur.remote });
+});
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.on('app:titlebar', (e, color, symbolColor) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -491,9 +582,11 @@ ipcMain.on('splash:quit', () => { if (splash && !splash.isDestroyed()) splash.cl
 ipcMain.on('splash:minimize', () => splash?.minimize());
 
 app.whenReady().then(() => {
+  applyRemote().catch(() => {});
+  relay.start();
   const settings = readJson(dataFile('settings.json'), {}) || {};
   if (settings.showSplash === false || process.env.ROBOTCONSOLE_NO_SPLASH) restoreSession();
   else createSplash();
 });
-app.on('before-quit', () => { quitting = true; if (windows.size) rememberWindows(); Prisma.closeAll(); Graphify.stopAll(); });
+app.on('before-quit', () => { quitting = true; remote.stop(); relay.stop(true); if (windows.size) rememberWindows(); Prisma.closeAll(); Graphify.stopAll(); });
 app.on('window-all-closed', () => app.quit());

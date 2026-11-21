@@ -14,6 +14,7 @@ class PtyClient {
     this.waiters = new Map(); // clé -> [resolve]
     this.onData = () => {};
     this.onExit = () => {};
+    this.onResize = () => {};
   }
 
   connect() {
@@ -69,6 +70,7 @@ class PtyClient {
         try { m = JSON.parse(line); } catch { continue; }
         if (m.t === 'data') this.onData(m.id, m.data);
         else if (m.t === 'exit') this.onExit(m.id, m.code, m.error);
+        else if (m.t === 'resized') this.onResize(m.id, m.cols, m.rows);
         else if (m.t === 'sessions') this._resolve('sessions', m.list);
         else if (m.t === 'attached') this._resolve('attach:' + m.id, m);
       }

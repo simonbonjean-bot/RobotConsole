@@ -39,6 +39,13 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 - **Workspace**: open a folder as a workspace (`Ctrl+O`). Its configuration lives in `.robot/` (name, robot, templates, favorites, services) and can be committed to share it with your team. The local layout stays in `.robot/state.json`, which Git ignores.
 - **Templates** for tabs, zones and screens: save "a terminal in `apps/api` that runs `npm run dev`", a complete space or a whole screen, then reopen it in one click.
 
+### Remote access (phone, tablet)
+- Open some robots to another device: click a robot → **📡 Sharing** → *Read-only* or *Control*. The panel shows a QR code that opens that robot directly on the phone (with the robot as the tab icon). The 📡 badge shows which robots are open. The end-of-work sound is set in the same panel (🔔).
+- Enable the server in **Settings → Remote access** and scan the QR code with your phone (same Wi-Fi, or through a VPN such as Tailscale). Only open robots are visible.
+- Terminals are live (with a key bar for Esc, Tab, Ctrl, arrows in control mode). The other tabs have a mobile view: start/stop services, run tests, Docker up/stop/restart, browse files and Git diffs, browse database tables, take a screenshot of a browser tab…
+- The link carries a secret token (kept in a cookie, regenerable). Do not expose the port to the Internet.
+- **From any network**: link the PC to a self-hosted [robotconsole-relay](../robotconsole-relay) (Settings → Remote access → Relay → Sign in). Phones sign in to the same account; everything is end-to-end encrypted and each new phone is approved on the PC with a 6-digit code.
+
 ### Customization
 - Themes: Midnight, Dawn (light), Ocean, Forest, Neon and High contrast. Each theme also sets the terminal palette and syntax highlighting.
 - Robot workshop: look, colors, accessories, body parts (arms, locomotion, gear…) and tool icon of each robot. Each trait can be animated or not.
@@ -93,9 +100,10 @@ The **Build** button runs `graphify extract . --code-only`, which analyzes the c
 ```
 main.js            Electron main process (windows, IPC)
 preload.js         API exposed to the interface (contextIsolation)
-main/              terminals (ptyhost), files and Git, tests, Docker, services, Prisma, Graphify, workspaces, i18n
+main/              terminals (ptyhost), files and Git, tests, Docker, services, Prisma, Graphify, workspaces, i18n, remote access
 renderer/          interface: app.js (spaces, layout, robots) and one file per tab type
                    i18n.js + i18n-en.js: interface translation (French → English dictionary)
+                   remote/: mobile page served by the remote access server
 scripts/           icon and emoji generation
 build/             application icons
 ```

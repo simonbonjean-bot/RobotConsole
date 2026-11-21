@@ -46,6 +46,62 @@
     dispose(tab) { clearInterval(tab.d.timer); stopLogs(tab); tab.d.term?.dispose(); },
     serialize(tab) { return { root: tab.d.root, collapsed: [...tab.d.collapsed], logH: tab.d.logH }; },
     applyTheme(tab) { if (tab.d.term) tab.d.term.options.theme = Themes.terminal(tab.space.bot); },
+
+    // Accès à distance (téléphone / tablette)
+    remoteSnapshot(tab) {
+      const x = tab.d.data;
+      if (!x) return { summary: 'Connexion à Docker…', sections: [] };
+      if (!x.available) return { summary: x.installed === false ? 'Docker n\'est pas installé' : 'Docker ne répond pas', sections: [], text: x.error || '' };
+      const groups = [...x.projects.map((p) => ({ p, services: p.services })), ...(x.others.length ? [{ p: { rel: 'Autres conteneurs', others: true }, services: x.others.map((c) => ({ name: c.name, containers: [c] })) }] : [])];
+      return {
+        summary: `Docker ${x.version} · ${tab.d.busy.size ? 'action en cours…' : `${x.projects.reduce((a, p) => a + p.running, 0)} service(s) en cours`}`,
+        busy: tab.d.busy.size > 0,
+        sections: groups.map(({ p, services }) => ({
+          title: p.rel,
+          actions: p.others ? [] : [{ id: 'up', label: '▶ up', args: { group: p.rel } }, ...(p.running ? [{ id: 'restart', label: '⟳', args: { group: p.rel } }, { id: 'down', label: '■ down', danger: true, args: { group: p.rel } }] : [])],
+          items: services.map((s) => {
+            const c = s.containers[0];
+            const state = c?.state || 'missing';
+            const [label, cls] = STATE[state] || [state, 'off'];
+            const key = `${p.rel}|${s.name}`;
+            return {
+              id: key, label: s.name, status: cls, badge: tab.d.busy.has(key) ? '…' : label,
+              detail: c?.image || '', meta: c?.stats ? `CPU ${c.stats.cpu} · ${c.stats.mem}` : c?.health ? `santé : ${c.health}` : '',
+              ports: (c?.ports || []).map((pt) => pt.host),
+              actions: [
+                ...(state === 'running' ? [{ id: 'restart', label: '⟳ Redémarrer' }, { id: 'stop', label: '■ Arrêter', danger: true }] : [{ id: 'start', label: '▶ Démarrer' }]),
+                { id: 'logs', label: '▤ Journaux' },
+              ],
+            };
+          }),
+        })),
+      };
+    },
+    async remoteAction(tab, action, { item, group } = {}) {
+      const x = tab.d.data;
+      if (!x?.available) return { error: 'Docker indisponible' };
+      if (group) {
+        const p = x.projects.find((q) => q.rel === group);
+        if (!p || !['up', 'down', 'restart'].includes(action)) return { error: 'Action inconnue' };
+        act(tab, { verb: action, file: p.file }, null, p.rel);
+        return { toast: `docker compose ${action}…` };
+      }
+      const [rel, name] = String(item || '').split('|');
+      const others = rel === 'Autres conteneurs';
+      const p = others ? { others: true, services: x.others.map((c) => ({ name: c.name, containers: [c] })) } : x.projects.find((q) => q.rel === rel);
+      const s = p?.services.find((q) => q.name === name);
+      if (!s) return { error: 'Service introuvable' };
+      const c = s.containers[0];
+      const target = others ? { container: c.id } : { service: s.name, file: p.file };
+      if (action === 'logs') {
+        CAI.openTab(tab.space, { kind: 'terminal', cwd: tab.d.root, commands: others ? `docker logs -f --tail 200 ${c.id}` : `docker compose -f "${p.file}" logs -f --tail 200 ${s.name}` }, { title: `logs ${s.name}` });
+        return { toast: 'Journaux ouverts dans un nouvel onglet terminal', refreshList: true };
+      }
+      const verb = action === 'start' ? (others ? 'start' : 'up') : action;
+      if (!['up', 'start', 'stop', 'restart'].includes(verb)) return { error: 'Action inconnue' };
+      act(tab, { verb, ...target }, null, item);
+      return { toast: `${s.name} : ${verb}…` };
+    },
   };
 
   async function refresh(tab, first, force) {

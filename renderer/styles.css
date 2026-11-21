@@ -330,3 +330,46 @@ body.dragging-space .space { pointer-events: auto; }
 .space-sound { flex: 0 0 auto; border: 0; background: transparent; padding: 0 2px; font-size: 12px; line-height: 1; cursor: pointer; opacity: .7; filter: grayscale(.3); }
 .space-sound:hover { opacity: 1; filter: none; transform: rotate(-12deg); }
 .space-sound.hidden { display: none; }
+
+/* Accès à distance */
+.space-remote { flex: 0 0 auto; border: 0; background: transparent; padding: 0 2px; font-size: 12px; line-height: 1; cursor: pointer; opacity: .8; }
+.space-remote:hover { opacity: 1; }
+.space-remote.off { opacity: .35; filter: grayscale(1); }
+.space-remote.hidden { display: none; }
+.remote-box { display: flex; gap: 18px; align-items: flex-start; padding: 12px 0; flex-wrap: wrap; }
+.remote-qr { width: 180px; height: 180px; background: #fff; border-radius: 10px; padding: 6px; flex: 0 0 auto; box-sizing: border-box; }
+.remote-qr svg { width: 100%; height: 100%; display: block; }
+.remote-urls { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 220px; align-items: flex-start; }
+.remote-url { display: flex; gap: 6px; align-items: center; width: 100%; }
+.remote-ip { flex: 1; text-align: left; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; cursor: pointer; font: inherit; display: flex; flex-direction: column; }
+.remote-ip small { color: var(--muted); font-size: 11px; }
+.remote-url.active .remote-ip { border-color: var(--accent); }
+
+/* Panneau du robot : son de fin et partage */
+.rp-extra { display: flex; gap: 6px; }
+.menu .rp-xbtn { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+.menu .rp-xbtn:hover { border-color: var(--muted); background: var(--hover); }
+.menu .rp-xbtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.rp-x-ico { font-size: 16px; }
+.rp-x-txt { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.rp-x-txt b { font-size: 12.5px; }
+.rp-x-txt small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rp-row-lbl { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.rp-share { display: flex; gap: 12px; align-items: flex-start; }
+.rp-qr { flex: 0 0 auto; width: 150px; height: 150px; background: #fff; border-radius: 10px; padding: 6px; box-sizing: border-box; }
+.rp-qr svg { width: 100%; height: 100%; display: block; }
+.rp-share-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.rp-share-side select { max-width: 100%; min-width: 0; }
+.rp-addr { font-size: 12px; color: var(--muted); }
+.rp-share-off { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 12.5px; padding: 8px; border: 1px dashed var(--border); border-radius: 10px; }
+.menu .rp-choices .tb-btn.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.relay-login { display: flex; gap: 8px; flex: 1; justify-content: flex-end; }
+.relay-login .set-input { min-width: 0; flex: 1; max-width: 320px; }
+.relay-err { color: var(--danger); }
+.relay-who { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12.5px; }
+.relay-phones { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }
+.relay-phone { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.relay-phone span { font-weight: 600; }
+.relay-phone small { flex: 1; color: var(--muted); }

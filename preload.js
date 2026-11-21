@@ -15,6 +15,23 @@ contextBridge.exposeInMainWorld('api', {
   onData: on('pty:data'),
   onExit: on('pty:exit'),
 
+  // Accès à distance (téléphone / tablette)
+  remotePublish: (robots) => ipcRenderer.send('remote:publish', robots),
+  remoteSnapshot: (tabId, snap) => ipcRenderer.send('remote:snapshot', tabId, snap),
+  remoteActionResult: (reqId, result) => ipcRenderer.send('remote:actionResult', reqId, result),
+  remoteInfo: () => ipcRenderer.invoke('remote:info'),
+  remoteRobotInfo: (rid) => ipcRenderer.invoke('remote:robotInfo', rid),
+  relayStatus: () => ipcRenderer.invoke('relay:status'),
+  relayLogin: (url) => ipcRenderer.invoke('relay:login', url),
+  relayLogout: () => ipcRenderer.invoke('relay:logout'),
+  relayEnable: (on) => ipcRenderer.invoke('relay:enable', on),
+  relayForgetPhone: (id) => ipcRenderer.invoke('relay:forgetPhone', id),
+  remoteSet: (patch) => ipcRenderer.invoke('remote:set', patch),
+  remoteRegen: () => ipcRenderer.invoke('remote:regen'),
+  onRemoteWatch: on('remote:watch'),
+  onRemoteAction: on('remote:action'),
+  onRemoteChanged: on('remote:changed'),
+
   // Presse-papiers
   readClipboard: () => ipcRenderer.invoke('clip:read'),
   writeClipboard: (text) => ipcRenderer.send('clip:write', text),

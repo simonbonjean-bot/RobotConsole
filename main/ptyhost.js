@@ -81,12 +81,12 @@ function handle(m) {
     case 'attach':
       if (!s) send({ t: 'attached', id: m.id, found: false });
       else {
-        if (s.alive && m.cols && m.rows) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); } catch {} }
-        send({ t: 'attached', id: m.id, found: true, data: s.buf, alive: s.alive, exitCode: s.exitCode, shellId: s.shellId });
+        if (s.alive && m.cols && m.rows) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); send({ t: 'resized', id: m.id, cols: s.p.cols, rows: s.p.rows }); } catch {} }
+        send({ t: 'attached', id: m.id, found: true, data: s.buf, alive: s.alive, exitCode: s.exitCode, shellId: s.shellId, cols: s.p.cols, rows: s.p.rows });
       }
       break;
     case 'write': if (s?.alive) s.p.write(m.data); break;
-    case 'resize': if (s?.alive) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); } catch {} } break;
+    case 'resize': if (s?.alive) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); send({ t: 'resized', id: m.id, cols: s.p.cols, rows: s.p.rows }); } catch {} } break;
     case 'kill': kill(m.id); break;
     case 'gc': {
       // Ne touche qu'aux sessions de la même portée (une fenêtre / un workspace)

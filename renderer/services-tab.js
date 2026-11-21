@@ -58,6 +58,43 @@
     },
     serialize(tab) { return { root: tab.s.root, selected: tab.s.selected || undefined }; },
     applyTheme(tab) { if (tab.s.term) tab.s.term.options.theme = Themes.terminal(tab.space.bot); },
+
+    // Accès à distance (téléphone / tablette)
+    remoteSnapshot(tab) {
+      const s = tab.s;
+      const up = s.defs.filter((d) => isUp(s.status[d.id])).length;
+      return {
+        summary: `${up} / ${s.defs.length} en cours`,
+        actions: [{ id: 'startAll', label: '▶ Tout démarrer' }, { id: 'stopAll', label: '■ Tout arrêter', danger: true }],
+        sections: [{
+          items: s.defs.map((d) => {
+            const st = s.status[d.id] || { state: 'stopped' };
+            const [label, cls] = ST[st.state] || [st.state, 'off'];
+            const live = isUp(st);
+            const meta = [];
+            if (live && st.started) meta.push(`⏱ ${UI.fmtDuration(Date.now() - st.started)}`);
+            else if (st.ended) meta.push(`⏹ il y a ${UI.fmtDuration(Date.now() - st.ended)}${st.exitCode != null ? ` · code ${st.exitCode}` : ''}`);
+            if (live && st.mem) meta.push(`▦ ${UI.fmtBytes(st.mem)}`);
+            if (st.health) meta.push(`${st.health.ok ? '♥' : '✗'} ${st.health.code || (st.health.ok ? 'ok' : st.health.error || 'fermé')}`);
+            return {
+              id: d.id, label: d.name || d.id, status: cls, badge: label, detail: d.command || '', meta: meta.join(' · '),
+              ports: st.ports || [], sessionId: st.sessionId || undefined, logLabel: 'Journal',
+              actions: live ? [{ id: 'restart', label: '⟳ Redémarrer' }, { id: 'stop', label: '■ Arrêter', danger: true }] : [{ id: 'start', label: '▶ Démarrer' }],
+            };
+          }),
+        }],
+      };
+    },
+    async remoteAction(tab, action, { item } = {}) {
+      const d = tab.s.defs.find((x) => x.id === item);
+      if (action === 'startAll') return startAll(tab);
+      if (action === 'stopAll') return stopAll(tab);
+      if (!d) return { error: 'Service introuvable' };
+      if (action === 'start') await start(tab, d);
+      else if (action === 'stop') await stop(tab, d);
+      else if (action === 'restart') await restart(tab, d);
+      return { toast: `${d.name || d.id} : ok` };
+    },
   };
 
   function greet(tab) {

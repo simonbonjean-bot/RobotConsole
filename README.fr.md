@@ -39,6 +39,13 @@ RobotConsole réunit dans une seule fenêtre vos terminaux, un explorateur de fi
 - **Workspace** : ouvrez un dossier comme workspace (`Ctrl+O`). Sa configuration est rangée dans `.robot/` (nom, robot, modèles, favoris, services), à versionner pour la partager avec l'équipe. La disposition locale reste dans `.robot/state.json`, ignoré par Git.
 - **Modèles** d'onglet, de zone et d'écran : enregistrez « un terminal dans `apps/api` qui lance `npm run dev` », un espace complet ou un écran entier, puis rouvrez-le en un clic.
 
+### Accès à distance (téléphone, tablette)
+- Ouvrez certains robots à un autre appareil : clic sur un robot → **📡 Partage** → *Lecture seule* ou *Contrôle*. Le panneau affiche un QR code qui ouvre directement ce robot sur le téléphone (avec le robot comme icône d'onglet). Le badge 📡 signale les robots ouverts. Le son de fin de travail se règle dans le même panneau (🔔).
+- Activez le serveur dans **Réglages → Accès à distance** et scannez le QR code avec le téléphone (même Wi-Fi, ou via un VPN comme Tailscale). Seuls les robots ouverts sont visibles.
+- Les terminaux sont en direct (avec une barre de touches Échap, Tab, Ctrl, flèches en mode contrôle). Les autres onglets ont une vue mobile : démarrer/arrêter les services, lancer les tests, Docker up/stop/restart, parcourir les fichiers et les diffs Git, consulter les tables de la base, capture d'un onglet navigateur…
+- Le lien contient un jeton secret (gardé dans un cookie, régénérable). N'exposez pas le port sur Internet.
+- **Depuis n'importe quel réseau** : reliez le PC à un relais auto-hébergé [robotconsole-relay](../robotconsole-relay) (Réglages → Accès à distance → Relais → Se connecter). Les téléphones se connectent au même compte ; tout est chiffré de bout en bout et chaque nouveau téléphone est approuvé sur le PC avec un code à 6 chiffres.
+
 ### Personnalisation
 - Thèmes : Minuit, Aube (clair), Océan, Forêt, Néon et Contraste élevé. Chaque thème règle aussi la palette des terminaux et la coloration syntaxique.
 - Atelier du robot : apparence, couleurs, accessoires et icône d'outil de chaque robot.
@@ -90,9 +97,10 @@ Le bouton **Construire** lance `graphify extract . --code-only`, qui analyse le 
 ```
 main.js            processus principal Electron (fenêtres, IPC)
 preload.js         API exposée à l'interface (contextIsolation)
-main/              terminaux (ptyhost), fichiers et Git, tests, Docker, services, Prisma, Graphify, workspaces
+main/              terminaux (ptyhost), fichiers et Git, tests, Docker, services, Prisma, Graphify, workspaces, accès à distance
 renderer/          interface : app.js (espaces, disposition, robots) et un fichier par type d'onglet
                    i18n.js + i18n-en.js : traduction de l'interface (dictionnaire français → anglais)
+                   remote/ : page mobile servie par l'accès à distance
 scripts/           génération des icônes et des emojis
 build/             icônes de l'application
 ```
