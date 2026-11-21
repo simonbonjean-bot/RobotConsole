@@ -27,6 +27,7 @@
     screenModels: [],
     gpuRendering: true,
     showSplash: true,
+    language: 'auto',
   };
 
   const FONTS = [
@@ -207,6 +208,7 @@
       body.innerHTML = '';
       body.append(
         section('Apparence',
+          row('Langue', select('language', I18n.LANGS), 'Langue de l\'interface'),
           themeCards(),
           row('Police du terminal', select('fontFamily', FONTS)),
           row('Taille du texte', range('fontSize', 9, 24, 1, (v) => `${v} px`)),

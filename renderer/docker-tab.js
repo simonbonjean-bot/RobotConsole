@@ -311,7 +311,7 @@
   });
   api.onDockerLogsEnd((id) => {
     const tab = byLogs.get(id);
-    if (tab) tab.d.term.write('\r\n\x1b[90m[fin du flux de journaux]\x1b[0m\r\n');
+    if (tab) tab.d.term.write(`\r\n\x1b[90m[${I18n.t('fin du flux de journaux')}]\x1b[0m\r\n`);
   });
 
   (window.TabKinds = window.TabKinds || {}).docker = DockerTab;

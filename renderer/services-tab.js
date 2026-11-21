@@ -352,7 +352,7 @@
     const res = await api.attachPty({ id: sid, cols: s.term.cols, rows: s.term.rows });
     if (s.logSession !== sid) return;
     if (res?.data) s.term.write(res.data);
-    if (res && !res.alive) s.term.write(`\r\n\x1b[90m[terminé, code ${res.exitCode}]\x1b[0m\r\n`);
+    if (res && !res.alive) s.term.write(`\r\n\x1b[90m[${I18n.t('terminé, code {0}', res.exitCode)}]\x1b[0m\r\n`);
   }
 
   function detachLogs(tab) {
@@ -376,7 +376,7 @@
   });
   api.onExit((id, code) => {
     const tab = bySession.get(id);
-    if (tab) tab.s.term.write(`\r\n\x1b[90m[terminé, code ${code}]\x1b[0m\r\n`);
+    if (tab) tab.s.term.write(`\r\n\x1b[90m[${I18n.t('terminé, code {0}', code)}]\x1b[0m\r\n`);
   });
   api.onSvcStatus((root, snap) => {
     for (const tab of tabs) if (tab.s.root.toLowerCase() === root.toLowerCase()) update(tab, snap);

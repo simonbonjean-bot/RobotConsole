@@ -1,52 +1,57 @@
 # RobotConsole
 
-Un outil pour arrêter de se perdre dans ses consoles ouvertes.
+*English · [Français](README.fr.md)*
 
-RobotConsole réunit dans une seule fenêtre vos terminaux, un explorateur de fichiers avec Git, vos tests, vos conteneurs Docker, vos services, votre base de données et le graphe de votre code. Chaque **espace** de travail a son petit **robot** : on le reconnaît d'un coup d'œil, il réagit à ce qui se passe et il range ses onglets quand on n'en a plus besoin.
+A tool to stop getting lost among your open consoles.
 
-![Vue d'ensemble : plusieurs espaces côte à côte, chacun avec son robot](docs/screenshots/apercu.png)
+RobotConsole brings your terminals, a file explorer with Git, your tests, your Docker containers, your services, your database and your code graph together in a single window. Each work **space** has its own little **robot**: you recognize it at a glance, it reacts to what's happening, and it tidies away its tabs when you no longer need them.
 
-## Fonctionnalités
+![Overview: several spaces side by side, each with its robot](docs/screenshots/apercu.png)
 
-### Des espaces, des robots, des écrans
-- **Espaces** : chaque zone de la fenêtre regroupe des onglets et porte un robot généré (nom, couleurs, accessoires). Le robot s'anime quand un terminal écrit, signale les onglets non lus et peut changer d'apparence selon l'onglet actif.
-- **Disposition libre** : découpez la fenêtre en colonnes et en lignes, redimensionnez, agrandissez un espace (`Ctrl+Maj+M`), glissez des onglets d'un espace à l'autre.
-- **Barre des robots** : tous les espaces sont visibles en haut ; on peut « ranger » un robot pour libérer de la place, puis le ressortir d'un clic.
-- **Écrans** : plusieurs jeux d'espaces dans la même fenêtre, comme des bureaux virtuels (`Ctrl+Alt+1…9`, `Ctrl+Alt+←/→`).
-- **Plusieurs fenêtres** : un espace peut être détaché dans une autre fenêtre puis ramené par glisser-déposer.
-- **Session restaurée** : disposition, onglets et terminaux sont retrouvés au redémarrage (les terminaux tournent dans un processus séparé et survivent à un rechargement).
+## Features
 
-### Les types d'onglets
+### Spaces, robots, screens
+- **Spaces**: each area of the window groups tabs and carries a generated robot (name, colors, accessories). The robot animates when a terminal writes, flags unread tabs and can change its look depending on the active tab.
+- **Free layout**: split the window into columns and rows, resize, maximize a space (`Ctrl+Shift+M`), drag tabs from one space to another.
+- **Robot bar**: every space is visible at the top; you can "park" a robot to free up room, then bring it back with a click. A whole screen can be folded into small squares.
+- **Screens**: several sets of spaces in the same window, like virtual desktops (`Ctrl+Alt+1…9`, `Ctrl+Alt+←/→`).
+- **Multiple windows**: a space can be detached into another window, then brought back by drag and drop.
+- **Session restore**: layout, tabs and terminals come back after a restart (terminals run in a separate process and survive a reload).
 
-| Onglet | Ce qu'il fait |
+### Tab types
+
+| Tab | What it does |
 | --- | --- |
-| **>_ Terminal** | xterm.js + node-pty : PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL… Recherche, liens cliquables, rendu WebGL, commandes de démarrage. |
-| **📁 Explorateur** | Arbre de fichiers avec aperçu (code coloré, Markdown, images), état Git, diff, indexation / annulation de fichiers, favoris, ouverture dans l'éditeur intégré (Monaco). |
-| **🧪 Tests** | Découvre les suites du projet, les classe (unitaires, règles métier, intégration, end-to-end…), les lance, affiche les échecs et la sortie, mode surveillance. |
-| **🐳 Docker** | Conteneurs regroupés par fichier compose : état, santé, ports, CPU, mémoire, actions et journaux en direct. |
-| **🛰 Services** | Services du workspace (`.robot/services.json`) : démarrage / arrêt, ports détectés, santé HTTP, redémarrage automatique, journaux interactifs. |
-| **◆ Prisma / BDD** | Schéma Prisma, diagramme des tables, navigation dans les données, console SQL (PostgreSQL), migrations. |
-| **🕸 Graphify** | Construit et affiche le graphe de connaissances du projet avec [Graphify](https://github.com/Graphify-Labs/graphify) : graphe interactif, rapport, journal. |
-| **🌐 Navigateur** | Un navigateur web isolé, pratique pour garder `http://localhost:3000` à côté de son terminal. |
+| **>_ Terminal** | xterm.js + node-pty: PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL… Search, clickable links, WebGL rendering, startup commands. |
+| **📁 Explorer** | File tree with preview (highlighted code, Markdown, images), Git status, diff, staging / discarding files, favorites, opening in the built-in editor (Monaco). |
+| **🧪 Tests** | Discovers the project's suites, sorts them (unit, business rules, integration, end-to-end…), runs them, shows failures and output, watch mode. |
+| **🐳 Docker** | Containers grouped by compose file: status, health, ports, CPU, memory, actions and live logs. |
+| **🛰 Services** | Workspace services (`.robot/services.json`): start / stop, detected ports, HTTP health checks, automatic restart, interactive logs. |
+| **◆ Prisma / DB** | Prisma schema, table diagram, data browsing, SQL console (PostgreSQL), migrations. |
+| **🕸 Graphify** | Builds and displays the project's knowledge graph with [Graphify](https://github.com/Graphify-Labs/graphify): interactive graph, report, log. |
+| **🌐 Browser** | An isolated web browser, handy for keeping `http://localhost:3000` next to your terminal. |
 
-![Ajouter un onglet : tous les types disponibles](docs/screenshots/menu-onglets.png)
+![Add a tab: all available types](docs/screenshots/menu-onglets.png)
 
-![Explorateur : arbre, état Git et aperçu du code](docs/screenshots/explorateur.png)
+![Explorer: tree, Git status and code preview](docs/screenshots/explorateur.png)
 
-### Workspaces et modèles
-- **Workspace** : ouvrez un dossier comme workspace (`Ctrl+O`). Sa configuration est rangée dans `.robot/` (nom, robot, modèles, favoris, services), à versionner pour la partager avec l'équipe. La disposition locale reste dans `.robot/state.json`, ignoré par Git.
-- **Modèles** d'onglet, de zone et d'écran : enregistrez « un terminal dans `apps/api` qui lance `npm run dev` », un espace complet ou un écran entier, puis rouvrez-le en un clic.
+### Workspaces and templates
+- **Workspace**: open a folder as a workspace (`Ctrl+O`). Its configuration lives in `.robot/` (name, robot, templates, favorites, services) and can be committed to share it with your team. The local layout stays in `.robot/state.json`, which Git ignores.
+- **Templates** for tabs, zones and screens: save "a terminal in `apps/api` that runs `npm run dev`", a complete space or a whole screen, then reopen it in one click.
 
-### Personnalisation
-- Thèmes : Minuit, Aube (clair), Océan, Forêt, Néon et Contraste élevé. Chaque thème règle aussi la palette des terminaux et la coloration syntaxique.
-- Atelier du robot : apparence, couleurs, accessoires et icône d'outil de chaque robot.
-- Police, taille, shell par défaut, comportement de l'éditeur, écran de démarrage…
+### Customization
+- Themes: Midnight, Dawn (light), Ocean, Forest, Neon and High contrast. Each theme also sets the terminal palette and syntax highlighting.
+- Robot workshop: look, colors, accessories, body parts (arms, locomotion, gear…) and tool icon of each robot. Each trait can be animated or not.
+- Font, size, default shell, editor behavior, start screen…
+- **Language**: English or French (Settings → Appearance → Language), or automatic based on the system language. The change applies immediately.
 
-![Le thème clair « Aube »](docs/screenshots/theme-aube.png)
+![The light "Dawn" theme](docs/screenshots/theme-aube.png)
+
+*Screenshots show the interface in French.*
 
 ## Installation
 
-Prérequis : **Windows 10/11**, [Node.js](https://nodejs.org) 20 ou plus récent et Git. L'application fonctionne aussi sous macOS et Linux, mais elle est développée et testée sous Windows.
+Requirements: **Windows 10/11**, [Node.js](https://nodejs.org) 20 or newer, and Git. The app also runs on macOS and Linux, but it is developed and tested on Windows.
 
 ```bash
 git clone https://github.com/simonbonjean-bot/RobotConsole.git
@@ -55,42 +60,47 @@ npm install
 npm start
 ```
 
-Sous Windows, `Lancer RobotConsole.bat` démarre l'application (après `npm install`).
+On Windows, `Lancer RobotConsole.bat` starts the app (after `npm install`).
 
-### Graphify (facultatif)
-L'onglet Graphify utilise le CLI Python `graphify` (Python 3.11+) :
+### Graphify (optional)
+The Graphify tab uses the `graphify` Python CLI (Python 3.11+):
 
 ```bash
-uv tool install graphifyy     # ou : pipx install graphifyy
+uv tool install graphifyy     # or: pipx install graphifyy
 ```
 
-Le bouton **Construire** lance `graphify extract . --code-only`, qui analyse le code localement, sans modèle ni clé API. Le résultat est écrit dans `graphify-out/` (`graph.html`, `graph.json`, `GRAPH_REPORT.md`), et l'onglet se met à jour tout seul quand ce dossier change.
+The **Build** button runs `graphify extract . --code-only`, which analyzes the code locally, with no model or API key. The result is written to `graphify-out/` (`graph.html`, `graph.json`, `GRAPH_REPORT.md`), and the tab refreshes on its own when that folder changes.
 
-## Raccourcis clavier
+## Keyboard shortcuts
 
-| Raccourci | Action |
+| Shortcut | Action |
 | --- | --- |
-| `Ctrl+Maj+N` | Nouvel espace |
-| `Ctrl+Maj+T` | Nouveau terminal dans l'espace actif |
-| `Ctrl+Maj+E` | Explorateur de fichiers |
-| `Ctrl+Maj+W` | Fermer l'onglet |
-| `Ctrl+Maj+M` | Agrandir / restaurer l'espace |
-| `Ctrl+Maj+L` | Choisir une disposition |
-| `Ctrl+Tab` / `Ctrl+Maj+Tab` | Onglet suivant / précédent |
-| `Alt+1…9`, `Alt+←/→` | Aller à un espace |
-| `Ctrl+Alt+1…9`, `Ctrl+Alt+←/→` | Changer d'écran |
-| `Ctrl+O` | Ouvrir un workspace |
-| `Ctrl+,` | Réglages |
+| `Ctrl+Shift+N` | New space |
+| `Ctrl+Shift+T` | New terminal in the active space |
+| `Ctrl+Shift+E` | File explorer |
+| `Ctrl+Shift+W` | Close the tab |
+| `Ctrl+Shift+M` | Maximize / restore the space |
+| `Ctrl+Shift+L` | Choose a layout |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Alt+1…9`, `Alt+←/→` | Go to a space |
+| `Ctrl+Alt+1…9`, `Ctrl+Alt+←/→` | Switch screen |
+| `Ctrl+O` | Open a workspace |
+| `Ctrl+,` | Settings |
+| `Shift+Enter` (terminal) | New line without submitting (Claude Code and other interactive CLIs) |
 
-## Structure du projet
+## Project structure
 
 ```
-main.js            processus principal Electron (fenêtres, IPC)
-preload.js         API exposée à l'interface (contextIsolation)
-main/              terminaux (ptyhost), fichiers et Git, tests, Docker, services, Prisma, Graphify, workspaces
-renderer/          interface : app.js (espaces, disposition, robots) et un fichier par type d'onglet
-scripts/           génération des icônes et des emojis
-build/             icônes de l'application
+main.js            Electron main process (windows, IPC)
+preload.js         API exposed to the interface (contextIsolation)
+main/              terminals (ptyhost), files and Git, tests, Docker, services, Prisma, Graphify, workspaces, i18n
+renderer/          interface: app.js (spaces, layout, robots) and one file per tab type
+                   i18n.js + i18n-en.js: interface translation (French → English dictionary)
+scripts/           icon and emoji generation
+build/             application icons
 ```
 
-Les données de l'application (état, réglages) sont dans `%APPDATA%\RobotConsole`. Pour lancer une instance avec un autre profil, utilisez la variable d'environnement `ROBOTCONSOLE_USERDATA`.
+The app's data (state, settings) lives in `%APPDATA%\RobotConsole`. To run an instance with a separate profile, set the `ROBOTCONSOLE_USERDATA` environment variable.
+
+### Translations
+The interface source text is French. `renderer/i18n.js` translates what is displayed (texts, tooltips, placeholders) using the dictionary in `renderer/i18n-en.js`, where each French text maps to its English translation and `{0}`, `{1}`… mark variable parts. User content (terminals, editor, file previews, SQL data, logs) is never translated. To translate a new text, add its French version and translation to `i18n-en.js`; in code that writes outside the DOM (terminal messages, native dialogs), use `I18n.t('Texte {0}', value)`.

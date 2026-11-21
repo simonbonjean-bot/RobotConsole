@@ -2048,6 +2048,7 @@
       Editor.applyTheme();
     }
     if (changed.includes('robotAnimations')) applyRobotSettings();
+    if (changed.includes('language')) I18n.setLang(Settings.data.language);
     if (changed.includes('tabModels') || changed.includes('zoneModels')) spaces.forEach(fillEmpty);
     if (changed.some((k) => k.startsWith('editor') || k === 'fontFamily' || k === 'fontSize')) Editor.applySettings();
     for (const s of spaces) for (const t of s.tabs) kindOf(t).applySettings?.(t, changed);
@@ -2086,6 +2087,7 @@
     try { document.getElementById('boot-bot').innerHTML = Robot.generate(ctx.ws?.seed || Robot.randomSeed(), { legs: true }).svg; } catch {}
     bootStep('Chargement des paramètres');
     await Settings.load();
+    I18n.setLang(Settings.data.language);
     Themes.apply(Settings.data.theme);
     applyRobotSettings();
     renderWorkspace();

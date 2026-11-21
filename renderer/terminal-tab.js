@@ -65,6 +65,12 @@
         if (e.ctrlKey && e.shiftKey && k === 'c') { Terminal_.copy(tab); return false; }
         if (e.shiftKey && !e.ctrlKey && e.key === 'Insert') { Terminal_.paste(tab); return false; }
         if (e.ctrlKey && !e.shiftKey && !e.altKey && k === 'f') { openSearch(tab); return false; }
+        // Maj+Entrée : retour à la ligne sans valider (Claude Code et autres CLI interactifs reconnaissent Échap+Entrée)
+        if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter') {
+          e.preventDefault();
+          if (!tab.exited && tab.ptyId) api.write(tab.ptyId, '\x1b\r');
+          return false;
+        }
         return true;
       });
 
@@ -240,7 +246,7 @@
       tab.shellId = res.shellId;
       CAI.save();
     } catch (err) {
-      tab.term.write(`\x1b[31mImpossible de lancer le shell : ${err.message}\x1b[0m\r\n`);
+      tab.term.write(`\x1b[31m${I18n.t('Impossible de lancer le shell : {0}', err.message)}\x1b[0m\r\n`);
     }
   }
 
@@ -268,7 +274,7 @@
   function markExited(tab, code, quiet) {
     tab.exited = true;
     tab.el.classList.add('exited');
-    tab.term.write(`\r\n\x1b[90m[Processus terminé (code ${code}) — Entrée pour relancer, Ctrl+Maj+W pour fermer]\x1b[0m\r\n`);
+    tab.term.write(`\r\n\x1b[90m[${I18n.t('Processus terminé (code {0}) — Entrée pour relancer, Ctrl+Maj+W pour fermer', code)}]\x1b[0m\r\n`);
     const terms = tab.space.tabs.filter((t) => t.kind === 'terminal');
     if (terms.every((t) => t.exited)) tab.space.robotEl.classList.add('exited');
     if (!quiet) CAI.say(tab.space, code === 0 ? 'Mission accomplie !' : `Aïe, code ${code}…`);

@@ -3,6 +3,7 @@
   const $ = (s) => document.querySelector(s);
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const info = await window.splash.info();
+  I18n.setLang(info.language);
 
   Themes.apply(info.theme);
 

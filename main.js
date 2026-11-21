@@ -1,5 +1,6 @@
 // RobotConsole — processus principal Electron
 // Fenêtres (une par workspace), service des terminaux, workspaces, tests, Docker, services.
+const I18n = require('./main/i18n');
 const { app, BrowserWindow, ipcMain, clipboard, shell, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -259,7 +260,7 @@ ipcMain.on('app:titlebar', (e, color, symbolColor) => {
 // ---------- Workspaces ----------
 ipcMain.handle('ws:pick', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  const r = await dialog.showOpenDialog(win, { title: 'Ouvrir un dossier comme workspace', properties: ['openDirectory', 'createDirectory'] });
+  const r = await dialog.showOpenDialog(win, { title: I18n.t('Ouvrir un dossier comme workspace'), properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
 ipcMain.on('ws:open', (_e, root) => { if (root) createWindow({ ws: root }); });
@@ -454,7 +455,7 @@ ipcMain.handle('splash:info', () => {
     appName: APP_NAME, version: app.getVersion(), description: pkg.description || '',
     versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
     platform: `${os.type()} ${os.release()} · ${process.arch}`,
-    dataDir: userData, theme: settings.theme || 'minuit', showSplash: settings.showSplash !== false,
+    dataDir: userData, theme: settings.theme || 'minuit', showSplash: settings.showSplash !== false, language: settings.language || 'auto',
     recent: recent().map(wsInfo),
     session: session.map((w) => ({ name: w.ws ? Workspace.load(w.ws).name : 'Sans workspace', secondary: w.winId && w.winId !== 'main' })),
   };
@@ -464,8 +465,8 @@ ipcMain.on('splash:blank', () => leaveSplash(() => createWindow({ ws: null })));
 ipcMain.on('splash:restore', () => leaveSplash(restoreSession));
 ipcMain.handle('splash:pick', async (_e, mode) => {
   const r = await dialog.showOpenDialog(splash, {
-    title: mode === 'new' ? 'Choisir ou créer le dossier du nouveau workspace' : 'Ouvrir un dossier comme workspace',
-    buttonLabel: mode === 'new' ? 'Créer le workspace ici' : 'Ouvrir',
+    title: I18n.t(mode === 'new' ? 'Choisir ou créer le dossier du nouveau workspace' : 'Ouvrir un dossier comme workspace'),
+    buttonLabel: I18n.t(mode === 'new' ? 'Créer le workspace ici' : 'Ouvrir'),
     properties: ['openDirectory', 'createDirectory'],
   });
   if (r.canceled || !r.filePaths[0]) return null;

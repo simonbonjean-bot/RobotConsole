@@ -128,7 +128,7 @@ function register() {
   ipcMain.handle('fs:exists', (_e, p) => fs.existsSync(p));
   ipcMain.handle('fs:pickFolder', async (e, start) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    const r = await dialog.showOpenDialog(win, { title: 'Choisir un dossier', defaultPath: start, properties: ['openDirectory'] });
+    const r = await dialog.showOpenDialog(win, { title: require('./i18n').t('Choisir un dossier'), defaultPath: start, properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('git:status', (_e, dir) => status(dir));

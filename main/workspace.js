@@ -41,10 +41,22 @@ function ensure(root) {
   const svc = file(root, 'services.json');
   if (!fs.existsSync(svc)) writeJson(svc, { services: [] });
   const gi = path.join(dir, '.gitignore');
-  if (!fs.existsSync(gi)) fs.writeFileSync(gi, '# État local de la fenêtre RobotConsole\nstate.json\n');
+  let en = false;
+  try { en = require('./i18n').lang() === 'en'; } catch {}
+  if (!fs.existsSync(gi)) fs.writeFileSync(gi, en ? '# Local RobotConsole window state\nstate.json\n' : '# État local de la fenêtre RobotConsole\nstate.json\n');
   const readme = path.join(dir, 'README.md');
   if (!fs.existsSync(readme)) {
-    fs.writeFileSync(readme, [
+    fs.writeFileSync(readme, (en ? [
+      '# .robot folder',
+      '',
+      'RobotConsole workspace configuration.',
+      '',
+      '- `workspace.json`: name, robot (`seed`), templates (tabs, zones, screens), favorite folders, workspace-specific settings.',
+      '- `services.json`: services started and monitored by the app (command, folder, port, health URL…).',
+      '- `tests.json` (optional): `{ "command": "…", "junit": "path/report.xml" }` for a custom test runner.',
+      '- `state.json`: window layout, local (ignored by git).',
+      '',
+    ] : [
       '# Dossier .robot',
       '',
       'Configuration du workspace RobotConsole.',
@@ -54,7 +66,7 @@ function ensure(root) {
       '- `tests.json` (facultatif) : `{ "command": "…", "junit": "chemin/rapport.xml" }` pour un lanceur de tests personnalisé.',
       '- `state.json` : disposition de la fenêtre, local (ignoré par git).',
       '',
-    ].join('\n'));
+    ]).join('\n'));
   }
   return load(root);
 }
