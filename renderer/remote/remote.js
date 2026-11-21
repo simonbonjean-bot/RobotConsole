@@ -198,6 +198,11 @@
       theme: { background: '#000000', foreground: '#c9d1d9' },
     });
     xterm.open(scroll);
+    // Rendu WebGL : chaque caractère est dessiné dans sa cellule (pas de décalage quand la police du
+    // téléphone n'a pas un glyphe et en prend un d'une autre police, plus large) + traits de cadre dessinés
+    if (window.WebglAddon) {
+      try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); xterm.loadAddon(gl); } catch {}
+    }
     term = { id: tab.sessionId, xterm, mode: r.mode, scroll };
     if (control) {
       xterm.onData((d) => sendInput(applyMods(d)));

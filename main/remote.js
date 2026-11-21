@@ -16,10 +16,14 @@ const STATIC = {
   '/remote.css': ['renderer/remote/remote.css', 'text/css; charset=utf-8'],
   '/vendor/xterm.js': ['node_modules/@xterm/xterm/lib/xterm.js', 'text/javascript; charset=utf-8'],
   '/vendor/xterm.css': ['node_modules/@xterm/xterm/css/xterm.css', 'text/css; charset=utf-8'],
-  '/vendor/addon-fit.js': ['node_modules/@xterm/addon-fit/lib/addon-fit.js', 'text/javascript; charset=utf-8'],
+  // fit + webgl réunis dans un même fichier : le relais (déjà déployé) ne demande que celui-ci
+  '/vendor/addon-fit.js': [['node_modules/@xterm/addon-fit/lib/addon-fit.js', 'node_modules/@xterm/addon-webgl/lib/addon-webgl.js'], 'text/javascript; charset=utf-8'],
   '/icon.png': ['build/icon.png', 'image/png'],
 };
 const COOKIE = 'rc_k';
+const readEntry = (entry) => (Array.isArray(entry[0])
+  ? Buffer.from(entry[0].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n;\n'), 'utf8')
+  : fs.readFileSync(path.join(ROOT, entry[0])));
 
 const newToken = () => crypto.randomBytes(32).toString('base64url');
 
@@ -141,11 +145,10 @@ class Remote {
     }
     const entry = STATIC[url.pathname];
     if (!entry) { res.writeHead(404, headers); return res.end(); }
-    fs.readFile(path.join(ROOT, entry[0]), (err, buf) => {
-      if (err) { res.writeHead(404, headers); return res.end(); }
-      res.writeHead(200, { ...headers, 'Content-Type': entry[1] });
-      res.end(buf);
-    });
+    let buf;
+    try { buf = readEntry(entry); } catch { res.writeHead(404, headers); return res.end(); }
+    res.writeHead(200, { ...headers, 'Content-Type': entry[1] });
+    res.end(buf);
   }
 
   // ---------- Robots publiés par les fenêtres ----------
@@ -310,6 +313,6 @@ Remote.newToken = newToken;
 Remote.file = (p) => {
   const entry = STATIC[p === '/index.html' ? '/' : p];
   if (!entry || entry[1].startsWith('image/')) return null;
-  try { return { type: entry[1], data: fs.readFileSync(path.join(ROOT, entry[0]), 'utf8') }; } catch { return null; }
+  try { return { type: entry[1], data: readEntry(entry).toString('utf8') }; } catch { return null; }
 };
 module.exports = Remote;
