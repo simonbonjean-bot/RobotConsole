@@ -23,7 +23,7 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 | Tab | What it does |
 | --- | --- |
 | **>_ Terminal** | xterm.js + node-pty: PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL… Search, clickable links, WebGL rendering, startup commands. |
-| **📁 Explorer** | File tree with preview (highlighted code, Markdown, images), Git status, diff, staging / discarding files, favorites, opening in the built-in editor (Monaco). |
+| **📁 Explorer** | File tree with preview (highlighted code, Markdown, images), Git status, diff, staging / discarding files, favorites, opening in the built-in editor (Monaco): find / replace, box selection and multiple cursors, word wrap and other display options, status bar (line, indentation, line endings, language). |
 | **🧪 Tests** | Discovers the project's suites, sorts them (unit, business rules, integration, end-to-end…), runs them, shows failures and output, watch mode. |
 | **🐳 Docker** | Containers grouped by compose file: status, health, ports, CPU, memory, actions and live logs. |
 | **🛰 Services** | Workspace services (`.robot/services.json`): start / stop, detected ports, HTTP health checks, automatic restart, interactive logs. |

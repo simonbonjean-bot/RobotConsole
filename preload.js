@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   remoteSet: (patch) => ipcRenderer.invoke('remote:set', patch),
   remoteRegen: () => ipcRenderer.invoke('remote:regen'),
   onRemoteWatch: on('remote:watch'),
+  onRemoteViewers: on('remote:viewers'),
   onRemoteAction: on('remote:action'),
   onRemoteChanged: on('remote:changed'),
 
@@ -77,7 +78,7 @@ contextBridge.exposeInMainWorld('api', {
   moveItem: (from, toDir) => ipcRenderer.invoke('fs:move', from, toDir),
   exists: (p) => ipcRenderer.invoke('fs:exists', p),
   pickFolder: (start) => ipcRenderer.invoke('fs:pickFolder', start),
-  watch: (id, root) => ipcRenderer.send('fs:watch', id, root),
+  watch: (id, root, opts) => ipcRenderer.send('fs:watch', id, root, opts),
   unwatch: (id) => ipcRenderer.send('fs:unwatch', id),
   onFsChanged: on('fs:changed'),
   gitStatus: (dir) => ipcRenderer.invoke('git:status', dir),

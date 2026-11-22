@@ -82,7 +82,8 @@
   window.addEventListener('resize', () => closeMenus(0));
 
   // ---------- Boîtes de dialogue ----------
-  function dialog({ title, message, input, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select }) {
+  // choices : [{ label, value, primary?, danger? }] remplace les boutons OK / Annuler (Échap renvoie null)
+  function dialog({ title, message, input, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select, choices }) {
     return new Promise((resolve) => {
       const ov = h('div', 'overlay dlg-overlay');
       const card = h('div', 'dlg');
@@ -100,14 +101,22 @@
       card.appendChild(err);
       const row = h('div', 'dlg-actions');
       const bCancel = h('button', 'tb-btn', esc(cancel));
-      const bOk = h('button', 'tb-btn ' + (danger ? 'danger-btn' : 'primary'), esc(ok));
-      row.append(bCancel, bOk);
+      let bOk = h('button', 'tb-btn ' + (danger ? 'danger-btn' : 'primary'), esc(ok));
+      if (choices) {
+        row.append(bCancel);
+        for (const c of choices) {
+          const b = h('button', 'tb-btn' + (c.primary ? ' primary' : '') + (c.danger ? ' danger-btn' : ''), esc(c.label));
+          b.addEventListener('click', () => done(c.value));
+          if (c.primary) bOk = b;
+          row.append(b);
+        }
+      } else row.append(bCancel, bOk);
       card.appendChild(row);
       ov.appendChild(card);
       document.body.appendChild(ov);
       const done = (v) => { ov.remove(); resolve(v); };
       bCancel.addEventListener('click', () => done(null));
-      bOk.addEventListener('click', () => done(input ? field.value : true));
+      if (!choices) bOk.addEventListener('click', () => done(input ? field.value : true));
       ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(null); });
       card.addEventListener('keydown', (e) => {
         e.stopPropagation();

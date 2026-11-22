@@ -101,11 +101,15 @@ async function diff(repoRoot, file, code) {
 
 // ---------- Surveillance ----------
 const watchers = new Map();
-function watch(id, root, wc) {
+// opts.name : surveille un seul fichier de « root » (dossier parent, non récursif) — résiste aux
+// enregistrements par renommage (fichier temporaire puis remplacement) que font beaucoup d'éditeurs.
+function watch(id, root, wc, opts = {}) {
   unwatch(id);
   let timer = null;
+  const only = opts.name ? String(opts.name).toLowerCase() : null;
   try {
-    const w = fs.watch(root, { recursive: true }, (_ev, name) => {
+    const w = fs.watch(root, { recursive: !only }, (_ev, name) => {
+      if (only && (!name || String(name).toLowerCase() !== only)) return;
       // Dans .git, seuls HEAD et refs/ comptent (commit, changement de branche) :
       // on ignore index, objets, verrous… que « git status » touche lui-même.
       if (name && /(^|[\\/])\.git([\\/]|$)/.test(name) && !/\.git[\\/](HEAD|refs[\\/])/.test(name)) return;
@@ -133,7 +137,7 @@ function register() {
   });
   ipcMain.handle('git:status', (_e, dir) => status(dir));
   ipcMain.handle('git:diff', (_e, repoRoot, file, code) => diff(repoRoot, file, code));
-  ipcMain.on('fs:watch', (e, id, root) => watch(id, root, e.sender));
+  ipcMain.on('fs:watch', (e, id, root, opts) => watch(id, root, e.sender, opts || {}));
   ipcMain.on('fs:unwatch', (_e, id) => unwatch(id));
   // Opérations sur les fichiers (menu contextuel, éditeur)
   ipcMain.handle('fs:readText', async (_e, file) => {

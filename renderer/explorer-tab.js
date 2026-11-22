@@ -268,8 +268,8 @@
       CAI.say(tab.space, `${count} fichier${count > 1 ? 's' : ''} modifié${count > 1 ? 's' : ''}`, 1600);
     }
     // Actualise l'aperçu si le fichier affiché a changé
-    if (ex.editor) ex.editor.checkDisk();
-    else if (ex.selected && !ex.selectedIsDir) showPreview(tab, ex.selected, true);
+    // (l'éditeur surveille lui-même son fichier et affiche une bande d'avertissement)
+    if (!ex.editor && ex.selected && !ex.selectedIsDir) showPreview(tab, ex.selected, true);
   }
 
   // ---------- Rendu de l'arbre ----------
@@ -595,8 +595,10 @@
     save.title = 'Enregistrer (Ctrl+S)';
     const view = CAI.h('button', 'tb-btn small', 'Aperçu');
     view.title = 'Revenir à l\'aperçu';
+    const find = CAI.h('button', 'icon-btn', '🔍');
+    find.title = 'Rechercher / remplacer (Ctrl+F / Ctrl+H)';
     const more = CAI.h('button', 'icon-btn', '⋯');
-    head.append(save, view, more);
+    head.append(find, save, view, more);
     const body = CAI.h('div', 'pv-body ed-host');
     ex.preview.innerHTML = '';
     ex.preview.append(head, body);
@@ -608,6 +610,7 @@
       });
       if (!tab.ex || ex.preview.contains(body) === false) { ctl.dispose(); return; }
       ex.editor = ctl;
+      find.before(...ctl.historyButtons());
       ctl.focus();
     } catch (e) {
       body.innerHTML = `<div class="pv-empty">${esc(e.message)}<br><small>Ouvrez-le avec son application par défaut.</small></div>`;
@@ -615,8 +618,10 @@
       return;
     }
     save.addEventListener('click', () => ex.editor?.save().catch(fail));
+    find.addEventListener('click', () => ex.editor?.find());
     view.addEventListener('click', async () => { if (await confirmLeaveEditor(tab)) { closeEditor(tab, true); showPreview(tab, file); } });
     more.addEventListener('click', () => UI.menu([
+      ...(ex.editor?.menuItems() || []),
       { label: 'Recharger depuis le disque', icon: '⟳', action: () => ex.editor?.revert() },
       { label: 'Ouvrir dans un onglet éditeur', icon: '🗎', action: async () => { if (await confirmLeaveEditor(tab)) { closeEditor(tab, true); showPreview(tab, file); CAI.openFile(tab.space, file); } } },
       { label: "Ouvrir avec l'application par défaut", icon: '↗', action: () => api.openPath(file) },
