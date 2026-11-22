@@ -6,6 +6,7 @@
 
   const spacesEl = $('#spaces');
   const crewEl = $('#crew');
+  let remoteViewers = new Set(); // rid des robots affichés sur un autre appareil
 
   let ctx = { ws: null, recent: [] }; // contexte de la fenêtre (workspace)
   let shells = [];
@@ -96,6 +97,7 @@
     mini.style.setProperty('--blink-delay', `-${b.blinkDelay}s`);
     space.crewFace.appendChild(mini);
     space.crewRobot = mini;
+    if (space.remoteEl) updateRemoteBadge(space);
     space.emptyRobot.innerHTML = Robot.generate(space.seed, { legs: true, traits: space.traits, context: { tabKind: space.activeTab?.kind } }).svg;
     space.emptyRobot.classList.toggle('has-tool', b.tool !== 'none');
     if (!space.customName) space.name = b.name;
@@ -201,13 +203,22 @@
     const open = space.remote !== 'off';
     space.remoteEl.classList.toggle('hidden', !open);
     space.remoteEl.classList.toggle('off', open && !remoteOn);
-    if (open) space.remoteEl.title = (space.remote === 'control' ? 'Ouvert à distance : contrôle' : 'Ouvert à distance : lecture seule') + (remoteOn ? '' : ' (serveur désactivé dans les réglages)');
+    const live = open && remoteOn && remoteViewers.has(space.rid);
+    if (open) space.remoteEl.title = (space.remote === 'control' ? 'Ouvert à distance : contrôle' : 'Ouvert à distance : lecture seule') + (live ? ' — utilisé sur un autre appareil' : remoteOn ? '' : ' (serveur désactivé dans les réglages)');
+    // Petit émetteur sur le robot : ouvert (bleu), utilisé sur un autre appareil (vert, pulsé)
+    for (const el of [space.robotEl, space.crewRobot]) {
+      if (!el) continue;
+      el.classList.toggle('rc-open', open);
+      el.classList.toggle('rc-dim', open && !remoteOn);
+      el.classList.toggle('rc-live', live);
+    }
   }
+  api.onRemoteViewers((keys) => { remoteViewers = new Set(Array.isArray(keys) ? keys : []); spaces.forEach(updateRemoteBadge); });
   function setRemote(space, mode) { space.remote = mode; updateRemoteBadge(space); save(); publishRemote(true); }
   let lastPublished = '';
   function publishRemote(force) {
     const robots = spaces.filter((sp) => sp.remote !== 'off').map((sp) => ({
-      key: sp.rid, name: sp.name, svg: sp.bot.svg, mode: sp.remote, color: sp.bot.color || undefined,
+      key: sp.rid, name: sp.name, svg: sp.bot.svg, body: sp.emptyRobot?.innerHTML || undefined, mode: sp.remote, color: sp.bot.color || undefined,
       tabs: sp.tabs.map((t) => ({ id: t.id, kind: t.kind, title: t.title, icon: (KIND_INFO[t.kind]?.icon || '').replace(/<[^>]*>/g, ''), sessionId: t.kind === 'terminal' ? t.ptyId || undefined : undefined, exited: t.exited || undefined, active: t === sp.activeTab || undefined })),
     }));
     const json = JSON.stringify(robots);

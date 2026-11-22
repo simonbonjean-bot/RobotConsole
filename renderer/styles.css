@@ -373,3 +373,17 @@ body.dragging-space .space { pointer-events: auto; }
 .relay-phone { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; }
 .relay-phone span { font-weight: 600; }
 .relay-phone small { flex: 1; color: var(--muted); }
+
+/* Robot ouvert à distance : petit émetteur en bas à droite du robot ; vert et pulsé quand un autre appareil l'affiche */
+.robot.rc-open { position: relative; }
+.robot.rc-open::after {
+  content: ''; position: absolute; right: -3px; bottom: -2px; width: 13px; height: 13px; z-index: 2; pointer-events: none;
+  background: no-repeat center / contain url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7.5' fill='%230d1117'/><circle cx='8' cy='10' r='1.8' fill='%2358a6ff'/><path d='M4.6 7.2a4.8 4.8 0 0 1 6.8 0M2.6 5a7.6 7.6 0 0 1 10.8 0' fill='none' stroke='%2358a6ff' stroke-width='1.6' stroke-linecap='round'/></svg>");
+}
+.robot.rc-open.rc-dim::after { filter: grayscale(1); opacity: .5; }
+.robot.rc-live::after {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7.5' fill='%230d1117'/><circle cx='8' cy='10' r='1.8' fill='%233fb950'/><path d='M4.6 7.2a4.8 4.8 0 0 1 6.8 0M2.6 5a7.6 7.6 0 0 1 10.8 0' fill='none' stroke='%233fb950' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  animation: rc-live 1.6s ease-in-out infinite;
+}
+@keyframes rc-live { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 #3fb950); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 3px #3fb950); } }
+@media (prefers-reduced-motion: reduce) { .robot.rc-live::after { animation: none; } }

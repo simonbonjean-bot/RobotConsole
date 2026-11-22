@@ -40,6 +40,7 @@ class Remote {
     this.extra = new Map(); // `${wcId}:${tabId}` -> Set(sessionId) — sessions annoncées par un aperçu (logs de services…)
     this.clients = new Set();
     this.pending = new Map(); // reqId -> ws
+    this.viewSent = new Map(); // wcId -> JSON des robots affichés sur un appareil (dernier envoi à la fenêtre)
     this.seq = 0;
   }
 
@@ -197,6 +198,19 @@ class Remote {
       if (ws.watch && !this._findTab(ws.watch.wcId, ws.watch.tabId)) this._unwatch(ws);
     }
   }
+  // Signale à chaque fenêtre lesquels de ses robots sont affichés sur un autre appareil
+  _viewersChanged() {
+    const by = new Map();
+    for (const c of this.clients) if (c.view) { if (!by.has(c.view.wcId)) by.set(c.view.wcId, new Set()); by.get(c.view.wcId).add(c.view.key); }
+    for (const wcId of new Set([...by.keys(), ...this.viewSent.keys()])) {
+      const keys = [...(by.get(wcId) || [])].sort();
+      const json = JSON.stringify(keys);
+      if ((this.viewSent.get(wcId) || '[]') === json) continue;
+      if (keys.length) this.viewSent.set(wcId, json); else this.viewSent.delete(wcId);
+      const wc = this.getWc(wcId);
+      if (wc && !wc.isDestroyed()) wc.send('remote:viewers', keys);
+    }
+  }
   _broadcastList() { for (const ws of this.clients) this._send(ws, { t: 'robots', robots: this._list() }); }
 
   // ---------- Aperçus et actions (relayés vers la fenêtre) ----------
@@ -248,6 +262,7 @@ class Remote {
     ws.on('close', () => {
       this.clients.delete(ws);
       this._unwatch(ws);
+      if (ws.view) { ws.view = null; this._viewersChanged(); }
       for (const [k, c] of this.pending) if (c === ws) this.pending.delete(k);
     });
     // Ping régulier : détecte les téléphones partis en veille
@@ -270,7 +285,7 @@ class Remote {
         if (!mode) return this._send(ws, { t: 'attached', id, found: false, denied: true });
         ws.subs.add(id);
         const r = await this.ptyHost.attach(id); // sans cols/rows : la taille du PC ne change pas
-        this._send(ws, { t: 'attached', id, found: !!r?.found, data: r?.data || '', alive: r?.alive, exitCode: r?.exitCode, cols: r?.cols || 80, rows: r?.rows || 24, mode });
+        this._send(ws, { t: 'attached', id, found: !!r?.found, data: r?.data || '', segs: r?.segs, alive: r?.alive, exitCode: r?.exitCode, cols: r?.cols || 80, rows: r?.rows || 24, mode });
         break;
       }
       case 'detach': ws.subs.delete(String(m.id || '')); break;
@@ -289,6 +304,11 @@ class Remote {
         break;
       }
       case 'unwatch': this._unwatch(ws); break;
+      case 'view': { // robot actuellement affiché sur l'appareil (ou aucun)
+        ws.view = m.key ? { wcId: m.wcId | 0, key: String(m.key).slice(0, 32) } : null;
+        this._viewersChanged();
+        break;
+      }
       case 'action': {
         const wcId = m.wcId | 0, tabId = String(m.tabId || '');
         const found = this._findTab(wcId, tabId);

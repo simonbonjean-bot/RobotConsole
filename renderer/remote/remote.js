@@ -19,7 +19,7 @@
     if (ws && ws.readyState <= 1) return;
     // Via le relais, la page reçoit un transport chiffré à la place du WebSocket local
     ws = window.RCTransport ? window.RCTransport() : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-    ws.onopen = () => { connEl.classList.add('on'); send({ t: 'list' }); render(true); };
+    ws.onopen = () => { connEl.classList.add('on'); lastView = null; send({ t: 'list' }); render(true); };
     ws.onclose = (e) => {
       connEl.classList.remove('on');
       if (e.code === 4003) { view.innerHTML = `<div class="empty">${T('Jeton changé : rescannez le QR code dans RobotConsole.', 'Token changed: scan the QR code again in RobotConsole.')}</div>`; return; }
@@ -41,16 +41,16 @@
       case 'robots': robots = m.robots || []; gotList = true; render(); break;
       case 'attached':
         if (term?.id === m.id) attachedTerm(term, m);
-        if (sheetLog?.id === m.id) { sheetLog.xterm.resize(m.cols || 80, m.rows || 24); sheetLog.xterm.write(m.data || ''); }
+        if (sheetLog?.id === m.id) replayInto(sheetLog, m);
         if (m.denied) toast(T('Accès refusé', 'Access denied'), true);
         break;
       case 'data':
-        if (term?.id === m.id) term.xterm.write(m.data);
-        if (sheetLog?.id === m.id) sheetLog.xterm.write(m.data);
+        if (term?.id === m.id) live(term, () => term.xterm.write(m.data));
+        if (sheetLog?.id === m.id) live(sheetLog, () => sheetLog.xterm.write(m.data));
         break;
       case 'resized':
-        if (term?.id === m.id) { term.xterm.resize(m.cols, m.rows); fitFont(); }
-        if (sheetLog?.id === m.id) sheetLog.xterm.resize(m.cols, m.rows);
+        if (term?.id === m.id) live(term, () => { term.xterm.resize(m.cols, m.rows); fitFont(); });
+        if (sheetLog?.id === m.id) live(sheetLog, () => sheetLog.xterm.resize(m.cols, m.rows));
         break;
       case 'exit':
         if (term?.id === m.id) term.xterm.write(m.revoked ? `\r\n\x1b[33m[${T('accès retiré', 'access revoked')}]\x1b[0m\r\n` : `\r\n\x1b[90m[${T('processus terminé', 'process exited')}${m.code != null ? ' · code ' + m.code : ''}]\x1b[0m\r\n`);
@@ -118,7 +118,18 @@
 
   // ---------- Rendu ----------
   let shown = ''; // ce qui est affiché (évite de tout reconstruire à chaque mise à jour)
+  // Indique au PC quel robot est affiché ici (son robot montre qu'il est utilisé sur un autre appareil)
+  let lastView = null;
+  function reportView() {
+    const r = document.visibilityState === 'hidden' ? null : curRobot();
+    const v = r ? `${r.wcId}:${r.key}` : '';
+    if (v === lastView || ws?.readyState !== 1) return;
+    lastView = v;
+    send(r ? { t: 'view', wcId: r.wcId, key: r.key } : { t: 'view', key: null });
+  }
+  document.addEventListener('visibilitychange', reportView);
   function render(force) {
+    reportView();
     const r = curRobot();
     if (!route.key || !r) {
       closeTerm(); unwatch();
@@ -155,7 +166,7 @@
     const grid = h('div', 'robots');
     for (const r of robots) {
       const c = h('div', 'rcard');
-      c.innerHTML = `<div class="robot">${r.svg || ''}</div><b>${esc(r.name)}</b><small>${r.tabs.length} ${T('onglet(s)', 'tab(s)')}</small><span class="pill ${r.mode}">${r.mode === 'control' ? T('contrôle', 'control') : T('lecture seule', 'read-only')}</span>`;
+      c.innerHTML = `<div class="robot${r.body ? ' body' : ''}">${r.body || r.svg || ''}</div><b>${esc(r.name)}</b><small>${r.tabs.length} ${T('onglet(s)', 'tab(s)')}</small><span class="pill ${r.mode}">${r.mode === 'control' ? T('contrôle', 'control') : T('lecture seule', 'read-only')}</span>`;
       c.addEventListener('click', () => go(r.key));
       grid.appendChild(c);
     }
@@ -215,11 +226,33 @@
   }
   function attachedTerm(t, m) {
     if (!m.found) { t.xterm.write(`\x1b[90m[${T('session introuvable', 'session not found')}]\x1b[0m`); return; }
-    t.xterm.resize(m.cols || 80, m.rows || 24);
-    t.xterm.reset();
-    t.xterm.write(m.data || '', () => t.xterm.scrollToBottom());
-    fitFont();
+    replayInto(t, m, () => t.xterm.scrollToBottom());
   }
+  // Rejoue la sortie du PC morceau par morceau, chacun à la taille du terminal du PC à ce moment-là :
+  // les lignes se coupent aux mêmes endroits que sur le PC (Claude Code redessine en remontant le curseur).
+  // Pendant le rejeu, la sortie en direct attend son tour.
+  function replayInto(t, m, done) {
+    t.xterm.reset();
+    t.queue = [];
+    const segs = m.segs?.length ? m.segs : [{ cols: m.cols, rows: m.rows, data: m.data || '' }];
+    let i = 0;
+    const next = () => {
+      if (t.queue == null || t.closed) return;
+      if (i >= segs.length) {
+        const q = t.queue;
+        t.queue = null;
+        if (m.cols && m.rows && (t.xterm.cols !== m.cols || t.xterm.rows !== m.rows)) t.xterm.resize(m.cols, m.rows);
+        if (t === term) fitFont();
+        q.forEach((f) => f());
+        return done?.();
+      }
+      const g = segs[i++];
+      if (g.cols && g.rows && (g.cols !== t.xterm.cols || g.rows !== t.xterm.rows)) t.xterm.resize(g.cols, g.rows);
+      t.xterm.write(g.data || '', next);
+    };
+    next();
+  }
+  function live(t, f) { if (t.queue) t.queue.push(f); else f(); }
   function setFont(px) {
     if (!term) return;
     fontSize = Math.max(5, Math.min(24, px));
@@ -238,6 +271,7 @@
   function closeTerm() {
     if (!term) return;
     send({ t: 'detach', id: term.id });
+    term.closed = true;
     term.xterm.dispose();
     term = null;
   }
@@ -416,7 +450,7 @@
     const xterm = new Terminal({ fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: 10, disableStdin: true, scrollback: 5000, theme: { background: '#000000' } });
     xterm.open(s.body);
     sheetLog = { id, xterm };
-    s.onClose = () => { send({ t: 'detach', id }); xterm.dispose(); if (sheetLog?.id === id) sheetLog = null; };
+    s.onClose = () => { send({ t: 'detach', id }); if (sheetLog?.id === id) sheetLog.closed = true; xterm.dispose(); if (sheetLog?.id === id) sheetLog = null; };
     send({ t: 'attach', id });
   }
 
