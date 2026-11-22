@@ -15,6 +15,8 @@ const Prisma = require('./main/prisma');
 const Graphify = require('./main/graphify');
 const Remote = require('./main/remote');
 const Relay = require('./main/relay');
+const { Speech } = require('./main/speech');
+const { SpeechVoice } = require('./main/speech-voice');
 
 const APP_NAME = 'RobotConsole';
 const APP_ID = 'RobotConsole.App';
@@ -163,7 +165,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     if (!quitting && windows.size > 1) { windows.delete(wcId); rememberWindows(); }
     else rememberWindows();
   });
-  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); });
+  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); });
   win.on('resized', rememberWindows);
   win.on('moved', rememberWindows);
   rememberWindows();
@@ -174,6 +176,41 @@ const ctxOf = (e) => windows.get(e.sender.id) || { ws: null };
 
 // ---------- Service des terminaux ----------
 const ptyHost = new PtyClient(app.getPath('userData'));
+let speechSeq = 0;
+const speechPending = new Map();
+const speechVoice = new SpeechVoice();
+const speech = new Speech({
+  userData,
+  deliver: (target, text) => new Promise((resolve, reject) => {
+    const wc = windows.get(target.wcId)?.win.webContents;
+    if (!wc || wc.isDestroyed()) { reject(new Error('Fenêtre du robot fermée.')); return; }
+    const id = ++speechSeq;
+    const timer = setTimeout(() => { speechPending.delete(id); reject(new Error('Le robot ne répond pas.')); }, 7000);
+    speechPending.set(id, { wcId: target.wcId, timer, resolve, reject });
+    wc.send('speech:say', id, target.rid, text);
+  }),
+});
+ipcMain.on('speech:publish', (e, robots) => speech.publish(e.sender.id, robots));
+ipcMain.handle('speech:record', (e, entry) => {
+  const recorded = speech.record(entry);
+  const duration = Math.min(15000, Math.max(1000, Number(entry.duration) || 2600));
+  remote.speech(e.sender.id, recorded, duration);
+  return recorded;
+});
+ipcMain.handle('speech:history', (_e, rid) => speech.history(rid, null));
+ipcMain.handle('speech:delete', (_e, rid, id) => {
+  const removed = speech.remove(rid, id);
+  if (removed) remote.speechChanged(rid);
+  return removed;
+});
+ipcMain.handle('speech:voice', (_e, text, volume) => speechVoice.speak(text, volume));
+ipcMain.on('speech:result', (e, id, error) => {
+  const pending = speechPending.get(id);
+  if (!pending || pending.wcId !== e.sender.id) return;
+  speechPending.delete(id);
+  clearTimeout(pending.timer);
+  if (error) pending.reject(new Error(error)); else pending.resolve();
+});
 const owners = new Map(); // sessionId -> Set(webContents)
 function own(id, wc) {
   if (!owners.has(id)) owners.set(id, new Set());
@@ -191,13 +228,13 @@ ptyHost.onData = (id, data) => {
   outBuf.set(id, (outBuf.get(id) || '') + data);
   if (!outTimer) outTimer = setTimeout(() => {
     outTimer = null;
-    for (const [k, v] of outBuf) { sendTo(k, 'pty:data', v); remote.onData(k, v); }
+    for (const [k, v] of outBuf) sendTo(k, 'pty:data', v, remote.onData(k, v));
     outBuf.clear();
   }, 8);
 };
 ptyHost.onExit = (id, code) => {
   const pending = outBuf.get(id);
-  if (pending) { sendTo(id, 'pty:data', pending); remote.onData(id, pending); outBuf.delete(id); }
+  if (pending) { sendTo(id, 'pty:data', pending, remote.onData(id, pending)); outBuf.delete(id); }
   sendTo(id, 'pty:exit', code);
   remote.onExit(id, code);
   services.onExit(id, code);
@@ -209,12 +246,11 @@ ptyHost.onFlush = (id) => {
   const pending = outBuf.get(id);
   if (!pending) return;
   outBuf.delete(id);
-  sendTo(id, 'pty:data', pending);
-  remote.onData(id, pending);
+  sendTo(id, 'pty:data', pending, remote.onData(id, pending));
 };
 
 // ---------- Accès à distance (téléphone / tablette) ----------
-const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null });
+const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null, getSpeechHistory: (rid) => speech.history(rid, null) });
 function remoteSettings() {
   const s = readJson(dataFile('settings.json'), {}) || {};
   const r = { enabled: false, port: 7777, token: '', ...(s.remote || {}) };
@@ -298,12 +334,19 @@ ipcMain.handle('remote:set', async (_e, patch) => {
 ipcMain.handle('shells:list', () => SHELLS.map(({ id, label }) => ({ id, label })));
 ipcMain.handle('pty:create', async (e, { id, shellId, cols, rows, cwd, init, scope }) => {
   const def = SHELLS.find((s) => s.id === shellId) || SHELLS[0];
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+  Object.assign(env, {
+    TERM: 'xterm-256color', COLORTERM: 'truecolor',
+    PATH: [path.join(__dirname, 'bin'), process.env.PATH || process.env.Path || ''].join(path.delimiter),
+    ROBOTCONSOLE_SESSION: id, ROBOTCONSOLE_SPEECH_PIPE: speech.pipe, ROBOTCONSOLE_USERDATA: userData,
+  });
   own(id, e.sender);
   await ptyHost.send({
     t: 'create', id, scope: scope || '', shellId: def.id, file: def.file, args: def.args,
     cols: Math.max(2, cols | 0), rows: Math.max(2, rows | 0),
     cwd: cwd && exists(cwd) ? cwd : (ctxOf(e).ws || os.homedir()),
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    env,
     init: init || [],
   });
   return { shellId: def.id, label: def.label };
@@ -590,11 +633,12 @@ ipcMain.on('splash:quit', () => { if (splash && !splash.isDestroyed()) splash.cl
 ipcMain.on('splash:minimize', () => splash?.minimize());
 
 app.whenReady().then(() => {
+  speech.start().catch((error) => { console.error('[speech]', error); dialog.showErrorBox('robot-say', error.message); });
   applyRemote().catch(() => {});
   relay.start();
   const settings = readJson(dataFile('settings.json'), {}) || {};
   if (settings.showSplash === false || process.env.ROBOTCONSOLE_NO_SPLASH) restoreSession();
   else createSplash();
 });
-app.on('before-quit', () => { quitting = true; remote.stop(); relay.stop(true); if (windows.size) rememberWindows(); Prisma.closeAll(); Graphify.stopAll(); });
+app.on('before-quit', () => { quitting = true; speech.stop(); speechVoice.stop(); remote.stop(); relay.stop(true); if (windows.size) rememberWindows(); Prisma.closeAll(); Graphify.stopAll(); });
 app.on('window-all-closed', () => app.quit());

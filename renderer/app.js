@@ -44,6 +44,7 @@
   // ---------- Sauvegarde ----------
   let saveTimer = null;
   function save() {
+    publishSpeech();
     if (restoring) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 300);
@@ -151,18 +152,69 @@
     });
   }
 
-  function say(space, text, ms = 2600) {
-    if (!Settings.data.robotBubbles || !space?.el.isConnected || !space.el.offsetParent) return;
+  function publishSpeech() {
+    api.speechPublish(spaces.map((sp) => ({
+      rid: sp.rid, name: sp.name,
+      sessions: sp.tabs.map((t) => t.ptyId).filter(Boolean),
+      roots: [...new Set([ctx.ws?.root, ...sp.tabs.map((t) => t.cwd)].filter(Boolean))],
+    })));
+  }
+
+  function say(space, text, ms = 2600, source = 'app') {
+    if (!space) return Promise.reject(new Error('Robot introuvable.'));
+    publishSpeech();
+    const spoken = source === 'app' ? I18n.t(text) : text;
+    const recorded = api.speechRecord({ rid: space.rid, name: space.name, text: spoken, source, duration: ms }).then((entry) => {
+      window.dispatchEvent(new CustomEvent('robot:speech-recorded', { detail: entry }));
+      return entry;
+    }).catch((error) => {
+      UI.toast(I18n.t("Impossible d'enregistrer le message : {0}", error.message), { kind: 'error' });
+      if (source === 'cli') throw error;
+    });
+    if (Settings.data.robotVoice) {
+      api.speechVoice(spoken, Settings.data.robotVolume).catch((error) => {
+        UI.toast(I18n.t('Voix de synthèse indisponible : {0}', error.message), { kind: 'error' });
+      });
+    }
+    if (!Settings.data.robotBubbles) return recorded;
     if (space.bubble) space.bubble.remove();
-    const anchor = space.robotEl.getBoundingClientRect();
+    const visible = space.el.isConnected && space.el.offsetParent;
+    const anchor = (visible ? space.robotEl : space.crewFace).getBoundingClientRect();
     const b = h('div', 'bubble');
-    b.textContent = text;
+    b.textContent = spoken;
+    // Les messages utilisateur ne passent pas dans le dictionnaire de traduction.
+    b.setAttribute('data-no-i18n', '');
     b.style.left = `${Math.max(4, anchor.left + 2)}px`;
     b.style.top = `${anchor.bottom + 6}px`;
     document.body.appendChild(b);
+    b.style.left = `${Math.max(4, Math.min(anchor.left + 2, innerWidth - b.offsetWidth - 8))}px`;
+    b.style.top = `${Math.max(4, Math.min(anchor.bottom + 6, innerHeight - b.offsetHeight - 8))}px`;
     space.bubble = b;
     setTimeout(() => b.classList.add('fade'), ms);
     setTimeout(() => { b.remove(); if (space.bubble === b) space.bubble = null; }, ms + 350);
+    return recorded;
+  }
+
+  api.onSpeech(async (id, rid, text) => {
+    try {
+      const space = spaces.find((sp) => sp.rid === rid);
+      if (!space) throw new Error('Robot déplacé ou fermé : réessayez la commande.');
+      await say(space, text, Math.min(15000, Math.max(3500, text.length * 65)), 'cli');
+      api.speechResult(id);
+    } catch (error) { api.speechResult(id, error.message); }
+  });
+
+  function speechHistoryContent(entries, deletable = false) {
+    return entries.length ? entries.slice().reverse().map((entry) =>
+      `<div class="speech-entry">${deletable ? `<button class="tb-btn speech-delete" data-message-id="${esc(entry.id)}" title="${esc(I18n.t('Supprimer ce message'))}" aria-label="${esc(I18n.t('Supprimer ce message'))}">×</button>` : ''}<small>${esc(new Date(entry.at).toLocaleString())} · ${esc(entry.source)}</small><div data-no-i18n>${esc(entry.text)}</div></div>`).join('') : esc(I18n.t('Aucun message pour ce robot.'));
+  }
+
+  async function speechHistory(space) {
+    try {
+      const entries = await api.speechHistory(space.rid);
+      const content = speechHistoryContent(entries);
+      await UI.dialog({ title: I18n.t('Historique des paroles'), message: `<div class="speech-history">${content}</div>`, ok: 'Fermer' });
+    } catch (error) { UI.toast(I18n.t("Impossible de lire l'historique : {0}", error.message), { kind: 'error' }); }
   }
 
   function talk(space) {
@@ -232,6 +284,7 @@
   function publishRemote(force) {
     const robots = spaces.filter((sp) => sp.remote !== 'off').map((sp) => ({
       key: sp.rid, name: sp.name, svg: sp.bot.svg, body: sp.emptyRobot?.innerHTML || undefined, mode: sp.remote, color: sp.bot.color || undefined,
+      workspace: ctx.ws ? { root: ctx.ws.root, name: ctx.ws.name, svg: ctx.wsBot?.svg } : null,
       tabs: sp.tabs.map((t) => ({ id: t.id, kind: t.kind, title: t.title, icon: (KIND_INFO[t.kind]?.icon || '').replace(/<[^>]*>/g, ''), sessionId: t.kind === 'terminal' ? t.ptyId || undefined : undefined, exited: t.exited || undefined, active: t === sp.activeTab || undefined })),
     }));
     const json = JSON.stringify(robots);
@@ -579,6 +632,7 @@
       { label: 'Changer de robot…', icon: '🤖', action: () => showRobotPicker(space, space.robotEl) },
       { label: space.icon ? 'Changer l\'icône…' : 'Ajouter une icône…', icon: space.icon ? TabModels.iconHtml(space.icon) : '🏷', action: () => chooseSpaceIcon(space, space.icon ? space.iconEl : space.nameEl) },
       { label: 'Personnaliser le robot (atelier)…', icon: '🛠', action: () => spaceStudio(space) },
+      { label: 'Historique des paroles', icon: '💬', action: () => speechHistory(space) },
       { label: space.sound ? `Son de fin : ${RobotSounds.label(space.sound.id)}` : 'Son quand le robot a fini…', icon: '🔔', action: () => showRobotPicker(space, space.robotEl, 'sound') },
       { label: 'Ajouter', icon: '＋', submenu: kindItems(space) },
       { label: space.remote === 'off' ? 'Accès à distance…' : `Accès à distance : ${space.remote === 'control' ? 'contrôle' : 'lecture seule'}`, icon: '📡', action: () => showRobotPicker(space, space.robotEl, 'share') },
@@ -611,8 +665,13 @@
     });
   }
 
-  async function closeSpace(space, released) {
+  async function canCloseSpace(space) {
     for (const t of [...space.tabs]) if (kindOf(t).canClose && !(await kindOf(t).canClose(t))) return;
+    return true;
+  }
+
+  async function closeSpace(space, released, checked = false) {
+    if (!checked && !(await canCloseSpace(space))) return;
     for (const t of [...space.tabs]) closeTab(t, true);
     space.bubble?.remove();
     const i = spaces.indexOf(space);
@@ -775,13 +834,42 @@
     save();
   }
   async function removeScreen(sc) {
-    if (screens.length < 2) return;
+    if (screens.length < 2 || !screens.includes(sc)) return;
     const i = screens.indexOf(sc);
-    const target = screens[i === 0 ? 1 : i - 1];
+    let target = screens[i === 0 ? 1 : i - 1];
     const inside = spaces.filter((sp) => sp.screenId === sc.id);
-    if (inside.length && !(await UI.confirm('Supprimer l\'écran ?', `Ses ${inside.length} espace(s) iront sur <b>${esc(target.name)}</b>.`, { ok: 'Supprimer l\'écran' }))) return;
+    let action = 'move';
+    if (inside.length) {
+      action = await UI.dialog({
+        title: 'Supprimer l\'écran ?',
+        message: I18n.t('Que faire des {0} zone(s) de <b>{1}</b> ?<br>Fermer les zones ferme leurs onglets et arrête leurs terminaux.', inside.length, esc(sc.name)),
+        choices: [
+          { label: 'Tout fermer', value: 'close', danger: true },
+          { label: 'Déplacer vers un autre écran…', value: 'move', primary: true },
+        ],
+      });
+      if (!action) return;
+      if (action === 'move') {
+        const targetId = await UI.dialog({
+          title: 'Écran de destination',
+          message: 'Choisissez l\'écran qui recevra les zones.',
+          options: screens.filter((other) => other.id !== sc.id).map((other) => ({ label: other.name, value: other.id })),
+          value: target.id,
+          ok: 'Déplacer et supprimer l\'écran',
+        });
+        if (!targetId) return;
+        target = screens.find((other) => other.id === targetId && other.id !== sc.id);
+        if (!target) return;
+      } else {
+        // Vérifie tous les onglets avant de fermer la moindre zone.
+        for (const sp of inside) if (!(await canCloseSpace(sp))) return;
+      }
+    }
     if (sc.id === activeScreenId) switchScreen(target.id);
-    for (const sp of inside) moveSpaceToScreen(sp, target.id);
+    for (const sp of inside) {
+      if (action === 'close') await closeSpace(sp, false, true);
+      else moveSpaceToScreen(sp, target.id);
+    }
     screens.splice(screens.indexOf(sc), 1);
     renderCrew();
     save();
@@ -1351,12 +1439,14 @@
   // pour qu'on ne confonde jamais les deux.
   const robotPicker = h('div', 'menu robot-picker hidden');
   document.body.appendChild(robotPicker);
-  document.addEventListener('mousedown', (e) => { if (!e.target.closest?.('.robot-picker')) robotPicker.classList.add('hidden'); });
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest?.('.robot-picker, .dlg-overlay')) robotPicker.classList.add('hidden'); });
   robotPicker.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); robotPicker.classList.add('hidden'); } });
 
   let toolCat = '';
   let toolQuery = '';
   let pickerPane = 'robot';
+  let pickerHistoryRefresh = null;
+  window.addEventListener('robot:speech-recorded', (event) => pickerHistoryRefresh?.(event.detail.rid));
   function showRobotPicker(space, anchor, pane) {
     UI.closeMenus();
     if (pane) pickerPane = pane;
@@ -1530,7 +1620,57 @@
     done.addEventListener('click', () => robotPicker.classList.add('hidden'));
     foot.append(studio, park, h('span', 'rp-spacer'), done);
 
-    robotPicker.append(head, extra, body, foot);
+    const controls = h('div', 'rp-controls');
+    controls.append(head, extra, body, foot);
+    const historyPane = h('section', 'rp-speech');
+    const historyTitle = h('h3', 'rp-speech-title', esc(I18n.t('Messages reçus')));
+    const clearHistory = h('button', 'tb-btn speech-clear', esc(I18n.t('Tout supprimer')));
+    clearHistory.disabled = true;
+    const historyHead = h('div', 'rp-speech-head');
+    historyHead.append(historyTitle, clearHistory);
+    const historyList = h('div', 'rp-speech-list');
+    historyList.setAttribute('aria-label', I18n.t('Messages reçus'));
+    historyList.textContent = I18n.t('Chargement des messages…');
+    historyPane.append(historyHead, historyList);
+    robotPicker.append(controls, historyPane);
+    let historyRequest = 0;
+    const refreshHistory = async (rid = space.rid) => {
+      if (rid !== space.rid || robotPicker.classList.contains('hidden')) return;
+      const requestId = ++historyRequest;
+      try {
+        const entries = await api.speechHistory(space.rid);
+        if (requestId !== historyRequest || !historyPane.isConnected) return;
+        const scrollTop = historyList.scrollTop;
+        const oldHeight = historyList.scrollHeight;
+        historyList.innerHTML = speechHistoryContent(entries, true);
+        clearHistory.disabled = !entries.length;
+        if (scrollTop > 0) historyList.scrollTop = scrollTop + historyList.scrollHeight - oldHeight;
+      } catch (error) {
+        if (requestId !== historyRequest || !historyPane.isConnected) return;
+        historyList.textContent = I18n.t("Impossible de lire l'historique : {0}", error.message);
+      }
+    };
+    let deleting = false;
+    const deleteHistory = async (id = null) => {
+      if (deleting) return;
+      deleting = true;
+      clearHistory.disabled = true;
+      try {
+        if (id === null && !await UI.confirm('Supprimer tous les messages ?', `Tous les messages de « ${esc(space.name)} » seront définitivement supprimés.`, { ok: 'Tout supprimer', danger: true })) return;
+        await api.speechDelete(space.rid, id);
+      } catch (error) {
+        UI.toast(I18n.t('Impossible de supprimer les messages : {0}', error.message), { kind: 'error' });
+      } finally {
+        deleting = false;
+        await refreshHistory();
+      }
+    };
+    clearHistory.addEventListener('click', () => deleteHistory());
+    historyList.addEventListener('click', (event) => {
+      const button = event.target.closest('.speech-delete');
+      if (button) deleteHistory(button.dataset.messageId);
+    });
+    pickerHistoryRefresh = refreshHistory;
 
     const setPane = (p) => {
       pickerPane = p;
@@ -1668,6 +1808,7 @@
     setPane(pickerPane);
 
     robotPicker.classList.remove('hidden');
+    refreshHistory();
     const r = anchor.getBoundingClientRect();
     robotPicker.style.left = `${Math.max(6, Math.min(r.left, innerWidth - robotPicker.offsetWidth - 8))}px`;
     robotPicker.style.top = `${Math.max(6, Math.min(r.bottom + 6, innerHeight - robotPicker.offsetHeight - 8))}px`;
@@ -2398,7 +2539,7 @@
     if (changed.includes('robotBodyInZone')) spaces.forEach(applyBot);
     if (changed.includes('crewStyle')) requestAnimationFrame(() => spaces.forEach((sp) => resizeTab(sp.activeTab)));
     if (changed.includes('language')) I18n.setLang(Settings.data.language);
-    if (changed.includes('tabModels') || changed.includes('zoneModels')) spaces.forEach(fillEmpty);
+    if (changed.includes('tabModels') || changed.includes('zoneModels') || changed.includes('hiddenPresetIds')) spaces.forEach(fillEmpty);
     if (changed.some((k) => k.startsWith('editor') || k === 'fontFamily' || k === 'fontSize')) Editor.applySettings();
     for (const s of spaces) for (const t of s.tabs) kindOf(t).applySettings?.(t, changed);
   });
@@ -2482,6 +2623,7 @@
       if (state.version === 3) maximized = curScreen().maximizedId ? byId(curScreen().maximizedId) : null;
       else if (state.maximized != null && spaces[state.maximized] && !spaces[state.maximized].parked) maximized = spaces[state.maximized];
       restoring = false;
+      publishSpeech();
       renderLayout();
       renderCrew();
       // Arrête les terminaux orphelins de cette fenêtre (onglets qui n'existent plus)

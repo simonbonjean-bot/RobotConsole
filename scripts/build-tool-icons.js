@@ -127,6 +127,24 @@ for (const [cat, list] of Object.entries(LU)) {
   }
 }
 
+// Pictogrammes nommés pour les clients dont le logo n'est pas fourni par nos catalogues.
+const CLI = {
+  opencode: ['OpenCode', 'square-terminal'], aider: ['Aider', 'code-xml'],
+  goose: ['Goose', 'bird'], amp: ['Amp', 'zap'], continue: ['Continue CLI', 'infinity'],
+  kiro: ['Kiro CLI', 'ghost'], auggie: ['Augment Auggie', 'layers'],
+  crush: ['Crush', 'gem'], openhands: ['OpenHands CLI', 'hand'],
+  llm: ['LLM', 'message-square'],
+  droid: ['Factory Droid', 'bot'], kilo: ['Kilo Code CLI', 'square-code'],
+  plandex: ['Plandex', 'list-todo'], interpreter: ['Open Interpreter', 'terminal'],
+  'amazon-q': ['Amazon Q Developer CLI', 'message-circle'],
+};
+for (const [id, [label, name]] of Object.entries(CLI)) {
+  const nodes = lucide[name];
+  if (!nodes) throw new Error(`Pictogramme CLI introuvable : ${name}`);
+  const body = nodes.map(([tag, attrs]) => `<${tag} ${Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ')}/>`).join('');
+  push({ id: 'cli:' + id, label, cat: 'ia', body, kw: `${id} ${label} cli ia ai agent terminal`.toLowerCase() });
+}
+
 // Anciens identifiants d'outils (robots déjà personnalisés / tirés au hasard)
 const ALIASES = {
   server: 'lu:server', database: 'lu:database', git: 'dv:git', terminal: 'lu:square-terminal', code: 'lu:code-xml', chip: 'lu:cpu', cloud: 'lu:cloud', lock: 'lu:lock', bug: 'lu:bug', electricity: 'lu:zap', battery: 'lu:battery-full', internet: 'lu:globe', webpage: 'lu:app-window',

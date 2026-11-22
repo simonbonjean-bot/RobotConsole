@@ -3,6 +3,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 const on = (channel) => (cb) => ipcRenderer.on(channel, (_e, ...args) => cb(...args));
 
 contextBridge.exposeInMainWorld('api', {
+  speechPublish: (robots) => ipcRenderer.send('speech:publish', robots),
+  speechRecord: (entry) => ipcRenderer.invoke('speech:record', entry),
+  speechHistory: (rid) => ipcRenderer.invoke('speech:history', rid),
+  speechDelete: (rid, id = null) => ipcRenderer.invoke('speech:delete', rid, id),
+  speechVoice: (text, volume) => ipcRenderer.invoke('speech:voice', text, volume),
+  speechResult: (id, error) => ipcRenderer.send('speech:result', id, error),
+  onSpeech: on('speech:say'),
   // Terminaux
   listShells: () => ipcRenderer.invoke('shells:list'),
   createPty: (opts) => ipcRenderer.invoke('pty:create', opts),

@@ -539,6 +539,41 @@
     for (const ed of editors) ed.updateOptions(options());
   }
 
+  const REMOTE_MAX = 64 * 1024;
+  const remoteSaving = new Set();
+  async function remoteFile(file) {
+    const r = await window.api.readFile(file, 512 * 1024);
+    const title = file.split(/[\\/]/).pop();
+    if (r.kind === 'image') return { image: r.dataUrl, title };
+    if (r.kind !== 'text') return { error: T('Fichier binaire') };
+    return {
+      title, text: r.content + (r.truncated ? '\n' + T('… (tronqué)') : ''),
+      edit: !r.truncated && r.size <= REMOTE_MAX ? { file, original: r.content, mtime: r.mtime } : null,
+    };
+  }
+  async function remoteSave(file, { content, original, mtime } = {}) {
+    if (typeof content !== 'string' || typeof original !== 'string' || !Number.isFinite(mtime)) return { error: T('Contenu invalide') };
+    if (new TextEncoder().encode(content).length > REMOTE_MAX) return { error: T('Fichier trop gros pour être édité à distance (> 64 Ko)') };
+    const key = norm(file);
+    const localDirty = () => { const entry = models.get(key); return entry?.refs > 0 && entryDirty(entry); };
+    const conflict = () => remoteSaving.has(key) || localDirty();
+    if (conflict()) return { error: T('Le fichier est en cours de modification sur le PC ou un autre appareil') };
+    remoteSaving.add(key);
+    try {
+      const r = await window.api.readFile(file, REMOTE_MAX);
+      if (r.kind !== 'text' || r.truncated || r.mtime !== mtime || r.content !== original ||
+          localDirty()) {
+        return { error: T('Le fichier a changé. Rouvrez-le avant d’enregistrer.') };
+      }
+      const savedMtime = await window.api.writeText(file, content);
+      const entry = models.get(key);
+      if (entry) await diskChanged(entry);
+      return { mtime: savedMtime, toast: T('Fichier enregistré') };
+    } finally {
+      remoteSaving.delete(key);
+    }
+  }
+
   // ---------- Onglet « éditeur » (ouvrir un fichier directement) ----------
   const EditorTab = {
     icon: '<span class="kind-edit">✎</span>',
@@ -652,10 +687,21 @@
     },
     dispose(tab) { tab.disposed = true; tab.ctl?.dispose(); },
     serialize(tab) { return { file: tab.file }; },
+    remoteReadActions: ['view'],
+    async remoteSnapshot(tab) {
+      const file = await remoteFile(tab.file);
+      if (file.error) return file;
+      return { summary: tab.file, text: file.text, actions: [{ id: 'view', label: 'Ouvrir le fichier', read: true }] };
+    },
+    remoteAction(tab, action, args = {}) {
+      if (action === 'view') return remoteFile(tab.file);
+      if (action === 'save' && args.item === tab.file) return remoteSave(tab.file, args);
+      return { error: T('Action inconnue') };
+    },
     applySettings() { applySettings(); },
     applyTheme() { applyTheme(); },
   };
 
   (window.TabKinds = window.TabKinds || {}).editor = EditorTab;
-  window.Editor = { load, open, applyTheme, applySettings, viewItems };
+  window.Editor = { load, open, applyTheme, applySettings, viewItems, remoteFile, remoteSave };
 })();

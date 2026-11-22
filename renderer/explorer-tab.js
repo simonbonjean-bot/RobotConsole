@@ -171,19 +171,16 @@
         }) }],
       };
     },
-    async remoteAction(tab, action, { item } = {}) {
+    async remoteAction(tab, action, args = {}) {
+      const { item } = args;
       const ex = tab.ex;
       if (action === 'view:tree' || action === 'view:changes') { ex.remoteView = action.slice(5); return {}; }
       if (action === 'up') { const cur = inRoot(ex, ex.remoteDir) ? ex.remoteDir : ex.root; ex.remoteDir = norm(cur) === norm(ex.root) ? ex.root : parent(cur); return {}; }
       const p = String(item || '');
       if (!inRoot(ex, p) && !(ex.git?.isRepo && inRoot({ root: ex.git.repoRoot }, p))) return { error: 'Chemin hors du dossier' };
       if (action === 'cd') { ex.remoteDir = p; return {}; }
-      if (action === 'view') {
-        const r = await api.readFile(p, 512 * 1024);
-        if (r.kind === 'image') return { image: r.dataUrl, title: baseName(p) };
-        if (r.kind !== 'text') return { error: 'Fichier binaire' };
-        return { text: r.content + (r.truncated ? '\n… (tronqué)' : ''), title: baseName(p) };
-      }
+      if (action === 'view') return Editor.remoteFile(p);
+      if (action === 'save') return Editor.remoteSave(p, args);
       const repo = ex.git?.repoRoot;
       const code = ex.git?.files?.[Object.keys(ex.git?.files || {}).find((k) => norm(k) === norm(p))]?.code;
       if (!repo || !code) return { error: 'Pas de modification Git' };

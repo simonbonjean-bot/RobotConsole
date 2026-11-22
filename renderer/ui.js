@@ -83,14 +83,25 @@
 
   // ---------- Boîtes de dialogue ----------
   // choices : [{ label, value, primary?, danger? }] remplace les boutons OK / Annuler (Échap renvoie null)
-  function dialog({ title, message, input, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select, choices }) {
+  function dialog({ title, message, input, options, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select, choices }) {
     return new Promise((resolve) => {
       const ov = h('div', 'overlay dlg-overlay');
       const card = h('div', 'dlg');
       card.appendChild(h('h3', '', esc(title)));
       if (message) card.appendChild(h('p', 'dlg-msg', message));
       let field = null;
-      if (input) {
+      if (options) {
+        field = h('select', 'set-input dlg-input');
+        field.setAttribute('aria-label', title);
+        for (const option of options) {
+          const el = h('option');
+          el.value = option.value;
+          el.textContent = option.label;
+          field.appendChild(el);
+        }
+        if (options.some((option) => option.value === value)) field.value = value;
+        card.appendChild(field);
+      } else if (input) {
         field = h('input', 'set-input dlg-input');
         field.value = value;
         field.placeholder = placeholder;
@@ -116,17 +127,19 @@
       document.body.appendChild(ov);
       const done = (v) => { ov.remove(); resolve(v); };
       bCancel.addEventListener('click', () => done(null));
-      if (!choices) bOk.addEventListener('click', () => done(input ? field.value : true));
+      if (!choices) bOk.addEventListener('click', () => done(field ? field.value : true));
       ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(null); });
       card.addEventListener('keydown', (e) => {
         e.stopPropagation();
         if (e.key === 'Escape') done(null);
-        if (e.key === 'Enter') { e.preventDefault(); bOk.click(); }
+        if (e.key === 'Enter' && !(options && e.target === field)) { e.preventDefault(); bOk.click(); }
       });
       if (field) {
         field.focus();
-        if (typeof select === 'number') field.setSelectionRange(0, select);
-        else field.select();
+        if (input && !options) {
+          if (typeof select === 'number') field.setSelectionRange(0, select);
+          else field.select();
+        }
       } else bOk.focus();
     });
   }

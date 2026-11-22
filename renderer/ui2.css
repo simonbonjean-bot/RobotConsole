@@ -199,9 +199,9 @@ body.dragging-tab .tabs-wrap { background: color-mix(in srgb, var(--accent) 6%, 
 .emj { position: fixed; z-index: 99; width: 372px; height: 430px; display: flex; flex-direction: column; padding: 8px; gap: 6px; }
 .emj-modes { display: flex; gap: 4px; }
 .emj-tool-cats { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow-y: auto; flex-shrink: 0; }
-.emj-top { display: flex; gap: 6px; align-items: center; }
-.emj-search { flex: 1; min-width: 0; }
-.emj-none { white-space: nowrap; }
+.emj-top { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.emj-search { flex: 1; min-width: 0; min-height: 34px; }
+.emj .emj-none { width: auto; flex-shrink: 0; white-space: nowrap; }
 .emj-cats { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .emj .emj-cat { flex: 1; min-width: 0; height: 30px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 17px; opacity: .6; display: flex; align-items: center; justify-content: center; padding: 0; }
 .emj .emj-cat:hover { opacity: 1; background: var(--hover); }

@@ -28,9 +28,10 @@ const readEntry = (entry) => (Array.isArray(entry[0])
 const newToken = () => crypto.randomBytes(32).toString('base64url');
 
 class Remote {
-  constructor({ ptyHost, getWc }) {
+  constructor({ ptyHost, getWc, getSpeechHistory }) {
     this.ptyHost = ptyHost;
     this.getWc = getWc; // wcId -> webContents | null
+    this.getSpeechHistory = getSpeechHistory;
     this.server = null;
     this.wss = null;
     this.port = 0;
@@ -42,6 +43,7 @@ class Remote {
     this.pending = new Map(); // reqId -> ws
     this.viewSent = new Map(); // wcId -> JSON des robots affichés sur un appareil (dernier envoi à la fenêtre)
     this.seq = 0;
+    this.outputSeq = new Map();
   }
 
   // ---------- Serveur ----------
@@ -213,6 +215,18 @@ class Remote {
   }
   _broadcastList() { for (const ws of this.clients) this._send(ws, { t: 'robots', robots: this._list() }); }
 
+  speech(wcId, entry, duration) {
+    if (!(this.robots.get(wcId) || []).some((r) => r.key === entry.rid)) return;
+    for (const ws of this.clients) this._send(ws, { t: 'speech', wcId, key: entry.rid, entry, duration });
+  }
+  speechChanged(rid) {
+    for (const [wcId, robots] of this.robots) {
+      if (robots.some((r) => r.key === rid)) {
+        for (const ws of this.clients) this._send(ws, { t: 'speechChanged', wcId, key: rid });
+      }
+    }
+  }
+
   // ---------- Aperçus et actions (relayés vers la fenêtre) ----------
   _watchers(wcId, tabId) { let n = 0; for (const c of this.clients) if (c.watch?.wcId === wcId && c.watch?.tabId === tabId) n++; return n; }
   _setWatch(wcId, tabId, on) {
@@ -242,7 +256,12 @@ class Remote {
   }
 
   // ---------- Terminaux ----------
-  onData(id, data) { for (const ws of this.clients) if (ws.subs.has(id)) this._send(ws, { t: 'data', id, data }); }
+  onData(id, data) {
+    const seq = (this.outputSeq.get(id) || 0) + 1;
+    this.outputSeq.set(id, seq);
+    for (const ws of this.clients) if (ws.subs.has(id)) this._send(ws, { t: 'data', id, data, seq });
+    return seq;
+  }
   onExit(id, code) { for (const ws of this.clients) if (ws.subs.has(id)) this._send(ws, { t: 'exit', id, code }); }
   onResize(id, cols, rows) { for (const ws of this.clients) if (ws.subs.has(id)) this._send(ws, { t: 'resized', id, cols, rows }); }
 
@@ -279,6 +298,22 @@ class Remote {
   async _handle(ws, m) {
     switch (m.t) {
       case 'list': this._send(ws, { t: 'robots', robots: this._list() }); break;
+      case 'speechHistory': {
+        const wcId = m.wcId | 0, key = String(m.key || '');
+        const allowed = () => (this.robots.get(wcId) || []).some((r) => r.key === key);
+        const reply = (result) => this._send(ws, { t: 'actionResult', req: m.req, result });
+        if (!allowed()) return reply({ error: 'Accès refusé' });
+        try {
+          if (!this.getSpeechHistory) throw new Error('Historique indisponible');
+          const entries = await this.getSpeechHistory(key);
+          if (!allowed()) return reply({ error: 'Accès retiré' });
+          reply({ entries });
+        } catch (error) {
+          console.error('[remote:speechHistory]', error);
+          reply({ error: String(error.message || error) });
+        }
+        break;
+      }
       case 'attach': {
         const id = String(m.id || '');
         const mode = this._sessionMode(id);

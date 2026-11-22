@@ -34,10 +34,12 @@
       const term = new Terminal({ ...termOptions(), allowProposedApi: true, theme: Themes.terminal(tab.space.bot) });
       const fit = new FitAddon.FitAddon();
       const search = new SearchAddon.SearchAddon();
+      const serializer = new SerializeAddon.SerializeAddon();
       term.loadAddon(fit);
       term.loadAddon(search);
+      term.loadAddon(serializer);
       term.loadAddon(new WebLinksAddon.WebLinksAddon((_e, uri) => window.open(uri)));
-      Object.assign(tab, { term, fit, search });
+      Object.assign(tab, { term, fit, search, serializer, outputSeq: 0 });
 
       tab.pane.classList.add('term-pane');
       tab.pane.addEventListener('contextmenu', async (e) => {
@@ -123,6 +125,24 @@
 
     applyTheme(tab) {
       tab.term.options.theme = Themes.terminal(tab.space.bot);
+    },
+
+    remoteReadActions: ['terminal-snapshot'],
+    async remoteSnapshot(tab) {
+      const deadline = Date.now() + 5000;
+      while (tab.queue || tab.replaying) {
+        if (tab.disposed || Date.now() >= deadline) throw new Error('Terminal en cours de synchronisation');
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (tab.disposed) throw new Error('Terminal fermé');
+      const seq = tab.outputSeq;
+      return new Promise((resolve) => tab.term.write('', () => resolve({
+        terminal: { id: tab.ptyId, seq, cols: tab.term.cols, rows: tab.term.rows, data: tab.serializer.serialize() },
+      })));
+    },
+    remoteAction(tab, action) {
+      if (action === 'terminal-snapshot') return Terminal_.remoteSnapshot(tab);
+      return { error: 'Action non disponible' };
     },
 
     copy(tab) {
@@ -242,6 +262,7 @@
     tab.ptyId = `p${++nid}-${Date.now().toString(36)}`;
     tabsByPty.set(tab.ptyId, tab);
     tab.term.reset();
+    tab.outputSeq = 0;
     try {
       const res = await api.createPty({ id: tab.ptyId, shellId: tab.shellId, cols: tab.term.cols, rows: tab.term.rows, cwd: tab.cwd, init: tab.init, scope: CAI.scope });
       tab.shellId = res.shellId;
@@ -304,9 +325,10 @@
     if (!quiet) CAI.say(tab.space, code === 0 ? 'Mission accomplie !' : `Aïe, code ${code}…`);
   }
 
-  api.onData((pid, data) => {
+  api.onData((pid, data, seq) => {
     const tab = tabsByPty.get(pid);
     if (!tab) return;
+    tab.outputSeq = seq;
     if (tab.queue) { tab.queue.push(data); return; }
     tab.term.write(data);
     CAI.talk(tab.space);

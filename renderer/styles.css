@@ -145,7 +145,7 @@ button { font: inherit; color: inherit; }
 @keyframes hello { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
 
 /* ---------- Menus et aide ---------- */
-.menu { position: fixed; z-index: 60; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 190px; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
+.menu { position: fixed; z-index: 60; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 190px; max-height: calc(100vh - 12px); overflow-y: auto; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
 .menu button { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .menu button:hover { background: var(--hover); }
 .menu-title { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 4px 10px 2px; }
@@ -248,7 +248,15 @@ body.dragging-space .space { pointer-events: auto; }
 .all-parked .ap-title { color: var(--text); font-size: 16px; font-weight: 600; margin-bottom: 4px; }
 
 /* ---------- Choix du robot : ① robot  +  ② icône sur laquelle il travaille ---------- */
-.robot-picker:not(.hidden) { display: flex; flex-direction: column; gap: 8px; width: 440px; max-width: calc(100vw - 16px); padding: 10px; box-sizing: border-box; }
+.robot-picker:not(.hidden) { display: grid; grid-template-columns: minmax(0, 420px) minmax(220px, 1fr); gap: 12px; width: 800px; max-width: calc(100vw - 16px); padding: 10px; box-sizing: border-box; }
+.rp-controls { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-speech { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; border-left: 1px solid var(--border); padding-left: 12px; }
+.rp-speech-title { margin: 0; font-size: 13px; }
+.rp-speech-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.menu .speech-clear { width: auto; flex: 0 0 auto; padding: 3px 6px; font-size: 11px; }
+.menu .speech-delete { float: right; width: auto; padding: 0 5px; margin-left: 6px; color: var(--muted); }
+.menu .speech-delete:hover, .menu .speech-clear:hover { color: var(--danger); }
+.rp-speech-list { flex: 1; height: 0; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; font-size: 12px; }
 .rp-head { display: flex; align-items: stretch; gap: 6px; }
 .rp-plus { align-self: center; color: var(--muted); font-size: 18px; font-weight: 600; }
 .menu .rp-slot { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
@@ -391,3 +399,8 @@ body.dragging-space .space { pointer-events: auto; }
 }
 @keyframes rc-live { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 #3fb950); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 3px #3fb950); } }
 @media (prefers-reduced-motion: reduce) { .robot.rc-live::after { animation: none; } }
+.speech-history { max-height: 55vh; overflow: auto; text-align: left; }
+.speech-entry { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.speech-entry small { opacity: .65; }
+.speech-entry div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble { max-width: min(460px, calc(100vw - 16px)); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }

@@ -24,7 +24,7 @@
   const ICONS = ['>_', '🚀', '⚡', '🔥', '🧪', '🐳', '🛰', '📁', '🗂', '▣', '🧱', '⚙', '🔧', '🛠', '🧩', '📦', '🌐', '🗄', '🐘', '🍃', '🐍', '☕', '🦀', '🐹', '💎', '📜', '🔍', '📊', '🧹', '🧠', '🤖', '🎯', '🔒', '📝', '🎨', '📱', '🖥', '☁', '🧾', '🏗'];
   const uid = () => `tm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const kindOf = (m) => KINDS[m.kind || 'terminal'] || KINDS.terminal;
-  const clean = ({ fromWs, ...rest }) => rest;
+  const clean = ({ fromWs, builtin, ...rest }) => rest;
   const newTab = () => ({ id: uid(), name: '', autoTitle: true, icon: '>_', kind: 'terminal', shellId: '', dir: '', commands: '' });
 
   // Anciens « modèles d'espace » (plusieurs onglets) -> un modèle par onglet
@@ -59,8 +59,10 @@
     if (!ws) return [];
     return [...(ws[TYPES[type].key] || []), ...(type === 'tab' ? fromLegacy(ws.templates) : [])].map((m) => ({ ...m, fromWs: true }));
   }
-  function all(type = 'tab') { return [...wsModels(type), ...generalList(type)]; }
-  const find = (id, type = 'tab') => all(type).find((m) => m.id === id);
+  const presets = (type) => (window.ModelPresets?.[type] || []).map((m) => ({ ...JSON.parse(JSON.stringify(m)), builtin: true }));
+  const presetVisible = (id) => !(Settings.data.hiddenPresetIds || []).includes(id);
+  function all(type = 'tab') { return [...wsModels(type), ...generalList(type), ...presets(type).filter((m) => presetVisible(m.id))]; }
+  const find = (id, type = 'tab') => all(type).find((m) => m.id === id) || presets(type).find((m) => m.id === id);
 
   function iconHtml(icon) {
     if (!icon || icon === '>_') return '<span class="kind-term">&gt;_</span>';
@@ -314,6 +316,7 @@
   // ---------- Fenêtre de gestion ----------
   let overlay = null;
   let projectOnly = false;
+  let presetOnly = true;
   let curType = 'tab';
   const expanded = new Set(); // zones dépliées dans les modèles d'écran
 
@@ -328,7 +331,10 @@
   function openManager(focusId, type) {
     if (type && TYPES[type]) curType = type;
     if (!CAI.ws) projectOnly = false;
-    if (focusId) projectOnly = wsModels(curType).some((m) => m.id === focusId);
+    if (focusId) {
+      presetOnly = !!find(focusId, curType)?.builtin;
+      projectOnly = wsModels(curType).some((m) => m.id === focusId);
+    }
     overlay?.remove();
     overlay = h('div', 'overlay tm-overlay');
     const card = h('div', 'settings-card tm-card');
@@ -348,23 +354,27 @@
       return [k, b];
     });
     const scopes = h('div', 'tm-row tm-seg');
+    const builtin = h('button', 'tb-btn', '⚡ Presets');
     const general = h('button', 'tb-btn', '🌍 Généraux');
     const project = h('button', 'tb-btn', '◆ Workspace');
     project.disabled = !CAI.ws;
     project.title = CAI.ws ? `Enregistrés dans ${CAI.ws.name}\\.robot\\workspace.json` : 'Ouvrez un workspace';
     general.title = 'Disponibles dans tous les projets';
-    general.addEventListener('click', () => { projectOnly = false; refresh(); });
-    project.addEventListener('click', () => { projectOnly = true; refresh(); });
-    scopes.append(general, project);
+    builtin.addEventListener('click', () => { presetOnly = true; refresh(); });
+    general.addEventListener('click', () => { presetOnly = false; projectOnly = false; refresh(); });
+    project.addEventListener('click', () => { presetOnly = false; projectOnly = true; refresh(); });
+    scopes.append(builtin, general, project);
     const bar = h('div', 'tm-row tm-bar');
     bar.append(types, h('span', 'tm-sep'), scopes);
 
     const refresh = (focus) => {
       for (const [k, b] of typeBtns) { b.classList.toggle('primary', k === curType); b.setAttribute('aria-pressed', String(k === curType)); }
-      general.classList.toggle('primary', !projectOnly);
-      project.classList.toggle('primary', projectOnly);
-      general.setAttribute('aria-pressed', String(!projectOnly));
-      project.setAttribute('aria-pressed', String(projectOnly));
+      builtin.classList.toggle('primary', presetOnly);
+      general.classList.toggle('primary', !presetOnly && !projectOnly);
+      project.classList.toggle('primary', !presetOnly && projectOnly);
+      builtin.setAttribute('aria-pressed', String(presetOnly));
+      general.setAttribute('aria-pressed', String(!presetOnly && !projectOnly));
+      project.setAttribute('aria-pressed', String(!presetOnly && projectOnly));
       help.innerHTML = HELP[curType];
       add.textContent = `＋ Nouveau ${TYPES[curType].one}`;
       render(list, focus);
@@ -382,7 +392,8 @@
       e.stopPropagation();
       const create = async (m) => {
         try { await addTo(curType, projectOnly, m); } catch (err) { UI.toast(err.message, { kind: 'error' }); return; }
-        render(list, m.id);
+        presetOnly = false;
+        refresh(m.id);
       };
       if (curType === 'tab') return create({ id: uid(), name: 'Nouveau modèle', icon: '🚀', kind: 'terminal', shellId: '', dir: '', commands: '' });
       const sp = CAI.activeSpace;
@@ -404,14 +415,67 @@
   function render(list, focusId) {
     list.innerHTML = '';
     const type = curType;
-    const models = projectOnly ? wsModels(type) : generalList(type);
-    list.appendChild(h('p', 'set-help', projectOnly ? `Modèles propres au workspace ${esc(CAI.ws.name)} (.robot/workspace.json, versionnable).` : 'Disponibles dans tous les projets.'));
+    const models = presetOnly ? presets(type) : projectOnly ? wsModels(type) : generalList(type);
+    list.appendChild(h('p', 'set-help', presetOnly
+      ? 'Presets intégrés : ouvrez-les directement ou copiez-les pour les personnaliser. Les clients CLI doivent être installés et configurés ; aucune installation automatique. Choisissez un shell compatible avec le client (WSL si nécessaire).'
+      : projectOnly ? `Modèles propres au workspace ${esc(CAI.ws.name)} (.robot/workspace.json, versionnable).` : 'Disponibles dans tous les projets.'));
+    if (presetOnly) list.appendChild(h('p', 'set-help', 'Décochez « Afficher » pour masquer un preset dans les menus et suggestions. Il reste disponible ici pour le réactiver, sans modifier les onglets déjà ouverts ni les modèles qui l’utilisent.'));
     if (!models.length) list.appendChild(h('div', 'tool-empty', 'Aucun modèle dans cette catégorie.'));
-    models.forEach((m) => list.appendChild(type === 'tab' && m.fromWs && !projectList('tab').some((x) => x.id === m.id) ? readonlyCard(m) : card(list, type, m)));
+    models.forEach((m) => list.appendChild(m.builtin ? presetCard(m, type) : type === 'tab' && m.fromWs && !projectList('tab').some((x) => x.id === m.id) ? readonlyCard(m) : card(list, type, m)));
     if (focusId) {
       const el = list.querySelector(`[data-id="${focusId}"]`);
       if (el) { el.scrollIntoView({ block: 'center' }); el.querySelector('.tm-name')?.select(); el.classList.add('flash'); }
     }
+  }
+
+  function presetCard(m, type) {
+    const c = h('div', 'tm-item ro');
+    c.dataset.id = m.id;
+    const row = h('div', 'tm-row', `<span class="tm-big">${iconHtml(m.icon)}</span><b>${esc(m.name)}</b><span class="muted">${esc(type === 'tab' ? kindOf(m).label : summary(type, m))}</span>`);
+    const visibility = h('label', 'tm-row');
+    const check = h('input');
+    check.type = 'checkbox';
+    check.checked = presetVisible(m.id);
+    check.addEventListener('change', () => {
+      const hidden = (Settings.data.hiddenPresetIds || []).filter((id) => id !== m.id);
+      if (!check.checked) hidden.push(m.id);
+      try {
+        Settings.set({ hiddenPresetIds: hidden });
+        UI.closeMenus();
+      } catch (err) {
+        check.checked = presetVisible(m.id);
+        UI.toast(err.message, { kind: 'error' });
+      }
+    });
+    visibility.append(check, h('span', '', 'Afficher'));
+    const openB = h('button', 'tb-btn small primary', '▶ Ouvrir');
+    openB.title = type === 'screen' ? 'Ouvrir dans un nouvel écran' : 'Ouvrir dans un nouvel espace (Maj : dans l\'espace actif)';
+    openB.addEventListener('click', (e) => {
+      closeManager();
+      if (type === 'tab') open(m, e.shiftKey ? CAI.activeSpace : null);
+      else if (type === 'zone') CAI.openZoneModel(m, e.shiftKey ? CAI.activeSpace : null);
+      else CAI.openScreenModel(m);
+    });
+    const copyB = h('button', 'tb-btn small', '⧉ Personnaliser');
+    copyB.addEventListener('click', async () => {
+      const copy = JSON.parse(JSON.stringify(clean(m)));
+      copy.id = uid();
+      for (const z of copy.zones || []) {
+        z.id = uid();
+        for (const t of z.tabs || []) t.id = uid();
+      }
+      for (const t of copy.tabs || []) t.id = uid();
+      try {
+        await addTo(type, projectOnly, copy);
+        openManager(copy.id, type);
+      } catch (err) { UI.toast(err.message, { kind: 'error' }); }
+    });
+    row.append(visibility, openB, copyB);
+    c.appendChild(row);
+    if (type === 'tab' && m.commands) c.appendChild(h('pre', 'set-help', esc(m.commands)));
+    if (type === 'zone') c.appendChild(h('div', 'tm-chips', (m.tabs || []).map((t) => `<span class="tm-chip">${iconHtml(t.icon)} ${esc(t.name)}</span>`).join('')));
+    if (type === 'screen') c.appendChild(h('div', 'tm-chips', (m.zones || []).map((z) => `<span class="tm-chip">${iconHtml(z.icon)} ${esc(z.name)}</span>`).join('')));
+    return c;
   }
 
   function readonlyCard(m) {
@@ -710,7 +774,7 @@
       addM.addEventListener('click', (e) => {
         e.stopPropagation();
         UI.menu(zm.map((z) => ({ label: z.name, icon: iconHtml(z.icon || '🗂'), hint: summary('zone', z), action: () => {
-          const { id, icon, fromWs, ...rest } = z;
+          const { id, fromWs, builtin, ...rest } = z;
           addZone(JSON.parse(JSON.stringify(rest)));
         } })), addM);
       });
@@ -724,7 +788,7 @@
   function menuItems(space) {
     const models = all('tab');
     return [
-      ...models.map((m) => ({ label: m.name, icon: iconHtml(m.icon), hint: `${kindOf(m).label}${m.fromWs ? ' · workspace' : ''}`, action: () => open(m, space) })),
+      ...models.map((m) => ({ label: m.name, icon: iconHtml(m.icon), hint: `${kindOf(m).label}${m.builtin ? ' · preset' : m.fromWs ? ' · workspace' : ''}`, action: () => open(m, space) })),
       models.length ? '-' : { label: 'Aucun modèle pour l\'instant', disabled: true },
       { label: 'Gérer les modèles…', icon: '🧩', action: () => openManager(null, 'tab') },
     ];
@@ -732,7 +796,7 @@
   function zoneMenuItems(space) {
     const models = all('zone');
     return [
-      ...models.map((z) => ({ label: z.name, icon: iconHtml(z.icon || '🗂'), hint: `${summary('zone', z)}${z.fromWs ? ' · workspace' : ''}`, action: () => CAI.openZoneModel(z, space) })),
+      ...models.map((z) => ({ label: z.name, icon: iconHtml(z.icon || '🗂'), hint: `${summary('zone', z)}${z.builtin ? ' · preset' : z.fromWs ? ' · workspace' : ''}`, action: () => CAI.openZoneModel(z, space) })),
       models.length ? '-' : { label: 'Aucun modèle de zone', disabled: true },
       { label: 'Gérer les modèles de zone…', icon: '🧩', action: () => openManager(null, 'zone') },
     ];
@@ -740,7 +804,7 @@
   function screenMenuItems() {
     const models = all('screen');
     return [
-      ...models.map((s) => ({ label: s.name, icon: iconHtml(s.icon || '▣'), hint: `${summary('screen', s)}${s.fromWs ? ' · workspace' : ''}`, action: () => CAI.openScreenModel(s) })),
+      ...models.map((s) => ({ label: s.name, icon: iconHtml(s.icon || '▣'), hint: `${summary('screen', s)}${s.builtin ? ' · preset' : s.fromWs ? ' · workspace' : ''}`, action: () => CAI.openScreenModel(s) })),
       models.length ? '-' : { label: 'Aucun modèle d\'écran', disabled: true },
       { label: 'Gérer les modèles d\'écran…', icon: '🧩', action: () => openManager(null, 'screen') },
     ];

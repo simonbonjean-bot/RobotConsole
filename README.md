@@ -83,6 +83,42 @@ For example, keep a development screen with the editor and terminal, a quality-c
 
 ![The same demo workspace using the light Dawn theme](docs/screenshots/theme-dawn.png)
 
+### Robot messages from the command line
+
+Open a **new integrated terminal**, then run:
+
+```text
+robot-say "C'est terminé"
+robot-say --history
+robot-say --list
+robot-say --robot <id-or-name> "Starting the checks"
+```
+
+The command follows the originating terminal to its current robot, even after moving the tab to another space or window. Closed robots are never replaced by another target. From an external terminal, the current directory must match a unique open robot; otherwise choose an ID from `--list`. RobotConsole must be running. Notifications use a local named pipe (a private Unix socket on macOS/Linux), independently of remote sharing.
+
+Integrated terminals inherit the command on PATH and the application profile. Existing shells restored from before this feature need to be reopened. For external terminals, run `npm link` once from this checkout to install `robot-say` on your user's npm PATH. For a non-default profile, set `ROBOTCONSOLE_USERDATA` to the same value as the app. Windows-hosted WSL shells do not inherit a usable Windows Node command/socket; use a Windows terminal for notifications.
+
+**Speech history** is displayed on the right when clicking a robot, with all its saved messages (newest first) and live updates while the menu is open. Delete an individual message with its × button, or use **Delete all** with confirmation to permanently clear that robot's history without affecting other robots. It is also available in the robot's context menu and through `--history` (the last 200 messages). All robot messages are saved, including application messages and messages for hidden or parked robots, even with bubbles disabled. History persists in `speech-history.jsonl` in the application profile; it is local, not committed to the workspace, and has no automatic deletion.
+
+**Speech synthesis** is off by default. Enable it in **Settings → Robots → Speech synthesis**; it uses the sound-volume setting. Windows uses the installed system voice, macOS uses `say`, and Linux requires `spd-say`. Messages are read sequentially; a voice error is shown without losing the bubble or history.
+
+### Progress skill for Claude Code, Codex and Copilot CLI
+
+The shared skill is in `skills/robot-say/SKILL.md`. Install it in this project:
+
+```text
+npm run install:robot-skill
+```
+
+Or install it in another project / for your user:
+
+```text
+npm run install:robot-skill -- --project "D:\Projects\my-app"
+npm run install:robot-skill -- --user
+```
+
+The installer writes `.claude/skills/robot-say/SKILL.md` for Claude Code and `.agents/skills/robot-say/SKILL.md` for Codex and Copilot CLI. It refuses to overwrite a different skill unless you explicitly pass `--force`. Restart the assistant if the skill does not appear. Ask it to **use the robot-say skill to announce progress**, or invoke `/robot-say` in Claude Code / Copilot CLI, or `$robot-say` in Codex. The skill announces starts, important milestones, blockers and actual completion, without reporting every tool call. It is not an automatic background hook and still requires permission to run local commands.
+
 ## Installation
 
 Requirements: **Windows 10/11**, [Node.js](https://nodejs.org) 20 or newer, and Git. The app also runs on macOS and Linux, but it is developed and tested on Windows.

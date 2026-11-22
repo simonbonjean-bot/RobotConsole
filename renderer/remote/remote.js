@@ -13,6 +13,97 @@
   let term = null; // terminal affiché : { id, xterm, mode }
   let watching = null; // onglet dont on reçoit l'aperçu
   let sheetLog = null; // journal ouvert en plein écran : { id, xterm }
+  const speechPanel = h('aside', 'speech-panel hidden');
+  view.before(speechPanel);
+  const liveSpeech = new Map();
+  let speechRobot = null, historyVersion = 0;
+
+  const speechKey = (r) => `${r.wcId}:${r.key}`;
+  function updateSpeechBubbles() {
+    for (const el of document.querySelectorAll('[data-speech-key]')) {
+      const message = liveSpeech.get(el.dataset.speechKey);
+      el.textContent = message?.text || '';
+      el.classList.toggle('hidden', !message);
+    }
+  }
+  function showSpeech(m) {
+    if (!robots.some((r) => r.wcId === m.wcId && r.key === m.key) || typeof m.entry?.text !== 'string') return;
+    const key = speechKey(m), message = { text: m.entry.text };
+    liveSpeech.set(key, message);
+    updateSpeechBubbles();
+    const duration = Math.min(15000, Math.max(1000, Number(m.duration) || 2600));
+    setTimeout(() => {
+      if (liveSpeech.get(key) !== message) return;
+      liveSpeech.delete(key);
+      updateSpeechBubbles();
+    }, duration);
+    if (speechRobot && speechKey(speechRobot) === key) loadSpeechHistory();
+  }
+  function loadSpeechHistory() {
+    if (!speechRobot) return;
+    const version = ++historyVersion;
+    const body = $('.speech-history', speechPanel);
+    body.textContent = T('Chargement des messages…', 'Loading messages…');
+    const finish = (result) => {
+      if (version !== historyVersion) return;
+      body.innerHTML = '';
+      if (result.error) {
+        body.textContent = result.error;
+        body.classList.add('error');
+        return;
+      }
+      body.classList.remove('error');
+      const entries = result.entries || [];
+      if (!entries.length) body.textContent = T('Aucun message pour ce robot.', 'No messages for this robot.');
+      for (const entry of [...entries].reverse()) {
+        const item = h('div', 'speech-entry');
+        const meta = h('small');
+        meta.textContent = `${new Date(entry.at).toLocaleString()} · ${entry.source || 'app'}`;
+        const text = h('div');
+        text.textContent = entry.text;
+        item.append(meta, text);
+        body.appendChild(item);
+      }
+    };
+    if (ws?.readyState !== 1) return finish({ error: T('Connexion interrompue', 'Disconnected') });
+    const req = ++reqSeq;
+    const timer = setTimeout(() => {
+      pending.delete(req);
+      finish({ error: T('Pas de réponse', 'No response') });
+    }, 10000);
+    pending.set(req, (result) => { clearTimeout(timer); finish(result); });
+    send({ t: 'speechHistory', wcId: speechRobot.wcId, key: speechRobot.key, req });
+  }
+  function renderSpeech(r, force) {
+    for (const key of liveSpeech.keys()) if (!robots.some((robot) => speechKey(robot) === key)) liveSpeech.delete(key);
+    if (!r) {
+      speechRobot = null;
+      historyVersion++;
+      speechPanel.innerHTML = '';
+      speechPanel.classList.add('hidden');
+      return;
+    }
+    if (speechRobot && speechKey(speechRobot) === speechKey(r)) {
+      if (force) loadSpeechHistory();
+      return;
+    }
+    speechRobot = r;
+    speechPanel.innerHTML = '';
+    speechPanel.classList.remove('hidden');
+    const bubble = h('div', 'robot-message hidden');
+    bubble.dataset.speechKey = speechKey(r);
+    bubble.setAttribute('role', 'status');
+    const details = h('details', 'speech-details');
+    const summary = h('summary');
+    summary.textContent = T('Messages du robot', 'Robot messages');
+    const refresh = h('button', 'btn small');
+    refresh.textContent = T('Actualiser', 'Refresh');
+    refresh.addEventListener('click', loadSpeechHistory);
+    details.append(summary, refresh, h('div', 'speech-history'));
+    speechPanel.append(bubble, details);
+    updateSpeechBubbles();
+    loadSpeechHistory();
+  }
 
   // ---------- Connexion ----------
   function connect() {
@@ -22,6 +113,8 @@
     ws.onopen = () => { connEl.classList.add('on'); lastView = null; send({ t: 'list' }); render(true); };
     ws.onclose = (e) => {
       connEl.classList.remove('on');
+      for (const cb of pending.values()) cb({ error: T('Connexion perdue', 'Connection lost') });
+      pending.clear();
       if (e.code === 4003) { view.innerHTML = `<div class="empty">${T('Jeton changé : rescannez le QR code dans RobotConsole.', 'Token changed: scan the QR code again in RobotConsole.')}</div>`; return; }
       setTimeout(connect, 1500);
     };
@@ -30,8 +123,13 @@
   const send = (m) => { if (ws?.readyState === 1) ws.send(JSON.stringify(m)); };
   function action(robot, tabId, act, args = {}) {
     return new Promise((resolve) => {
+      if (ws?.readyState !== 1) { resolve({ error: T('Non connecté', 'Not connected') }); return; }
       const req = ++reqSeq;
-      pending.set(req, resolve);
+      const timer = setTimeout(() => {
+        pending.delete(req);
+        resolve({ error: T('Pas de réponse', 'No response') });
+      }, 65000);
+      pending.set(req, (result) => { clearTimeout(timer); resolve(result); });
       send({ t: 'action', wcId: robot.wcId, tabId, action: act, args, req });
     });
   }
@@ -39,21 +137,33 @@
   function onMessage(m) {
     switch (m.t) {
       case 'robots': robots = m.robots || []; gotList = true; render(); break;
+      case 'speech': showSpeech(m); break;
+      case 'speechChanged':
+        liveSpeech.delete(speechKey(m));
+        updateSpeechBubbles();
+        if (speechRobot && speechKey(speechRobot) === speechKey(m)) loadSpeechHistory();
+        break;
       case 'attached':
         if (term?.id === m.id) attachedTerm(term, m);
         if (sheetLog?.id === m.id) replayInto(sheetLog, m);
         if (m.denied) toast(T('Accès refusé', 'Access denied'), true);
         break;
       case 'data':
-        if (term?.id === m.id) writeLive(term, m.data);
+        if (term?.id === m.id) mirrorData(term, m);
         if (sheetLog?.id === m.id) writeLive(sheetLog, m.data);
         break;
       case 'resized':
-        if (term?.id === m.id) resizeLive(term, m.cols, m.rows);
+        if (term?.id === m.id) requestTermSnapshot(term);
         if (sheetLog?.id === m.id) resizeLive(sheetLog, m.cols, m.rows);
         break;
       case 'exit':
-        if (term?.id === m.id) writeLive(term, m.revoked ? `\r\n\x1b[33m[${T('accès retiré', 'access revoked')}]\x1b[0m\r\n` : `\r\n\x1b[90m[${T('processus terminé', 'process exited')}${m.code != null ? ' · code ' + m.code : ''}]\x1b[0m\r\n`);
+        if (term?.id === m.id) {
+          if (m.revoked) {
+            term.failed = true;
+            term.xterm.options.disableStdin = true;
+            toast(T('Accès retiré', 'Access revoked'), true);
+          } else requestTermSnapshot(term);
+        }
         break;
       case 'snapshot':
         if (watching && watching.wcId === m.wcId && watching.tabId === m.tabId) renderSnapshot(m.snap);
@@ -131,6 +241,7 @@
   function render(force) {
     reportView();
     const r = curRobot();
+    renderSpeech(r, force);
     if (!route.key || !r) {
       closeTerm(); unwatch();
       backBtn.classList.toggle('hidden', !route.key);
@@ -163,14 +274,43 @@
         : T('Connexion…', 'Connecting…')}</div>`;
       return;
     }
-    const grid = h('div', 'robots');
+    const groups = new Map();
     for (const r of robots) {
-      const c = h('div', 'rcard');
-      c.innerHTML = `<div class="robot${r.body ? ' body' : ''}">${r.body || r.svg || ''}</div><b>${esc(r.name)}</b><small>${r.tabs.length} ${T('onglet(s)', 'tab(s)')}</small><span class="pill ${r.mode}">${r.mode === 'control' ? T('contrôle', 'control') : T('lecture seule', 'read-only')}</span>`;
-      c.addEventListener('click', () => go(r.key));
-      grid.appendChild(c);
+      const key = r.workspace?.root || '';
+      if (!groups.has(key)) groups.set(key, { key, name: r.workspace?.name || T('Sans workspace', 'No workspace'), svg: r.workspace?.svg, robots: [] });
+      groups.get(key).robots.push(r);
     }
-    view.appendChild(grid);
+    const compare = (a, b) => a.localeCompare(b, EN ? 'en' : 'fr', { numeric: true, sensitivity: 'base' });
+    const sorted = [...groups.values()].sort((a, b) => {
+      if (!a.key !== !b.key) return a.key ? -1 : 1;
+      return compare(a.name, b.name) || compare(a.key, b.key);
+    });
+    for (const group of sorted) {
+      const section = h('section', 'workspace-group');
+      const heading = h('h2', 'workspace-title');
+      if (group.key && group.svg) {
+        const bot = h('span', 'robot workspace-robot', group.svg);
+        bot.setAttribute('aria-hidden', 'true');
+        heading.appendChild(bot);
+      }
+      const name = h('span', 'workspace-name');
+      name.textContent = group.name;
+      heading.appendChild(name);
+      const grid = h('div', 'robots');
+      for (const r of group.robots) {
+        const c = h('div', 'rcard');
+        c.innerHTML = `<div class="robot${r.body ? ' body' : ''}">${r.body || r.svg || ''}</div><b>${esc(r.name)}</b><small>${r.tabs.length} ${T('onglet(s)', 'tab(s)')}</small><span class="pill ${r.mode}">${r.mode === 'control' ? T('contrôle', 'control') : T('lecture seule', 'read-only')}</span>`;
+        const bubble = h('div', 'robot-message hidden');
+        bubble.dataset.speechKey = speechKey(r);
+        bubble.setAttribute('role', 'status');
+        c.appendChild(bubble);
+        c.addEventListener('click', () => go(r.key));
+        grid.appendChild(c);
+      }
+      section.append(heading, grid);
+      view.appendChild(section);
+    }
+    updateSpeechBubbles();
   }
 
   function renderTabs(r) {
@@ -187,7 +327,7 @@
   }
 
   // ---------- Terminal ----------
-  let fontSize = +(localStorageGet('rc-font') || 0);
+  let fontSize = Math.max(12, Math.min(24, Number(localStorageGet('rc-font')) || 14));
   function localStorageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
   function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
@@ -199,17 +339,22 @@
     const wrap = h('div', 'termwrap');
     const bar = h('div', 'termbar', `<span>${control ? T('Contrôle : ce que vous tapez part sur le PC', 'Control: what you type goes to the PC') : T('Lecture seule', 'Read-only')}</span><span class="sp"></span>`);
     const minus = h('button', 'btn small', 'A−'), plus = h('button', 'btn small', 'A+'), fit = h('button', 'btn small', '↔');
-    fit.title = T('Adapter la largeur (défilement horizontal si nécessaire)', 'Fit width (scroll horizontally if needed)');
-    bar.append(minus, plus, fit);
+    fit.title = T('Réduire le texte sans le rendre illisible (défilement horizontal si nécessaire)', 'Reduce text without making it unreadable (scroll horizontally if needed)');
+    const refresh = h('button', 'btn small', '⟳');
+    refresh.title = T('Resynchroniser avec le terminal du PC', 'Resynchronize with the PC terminal');
+    bar.append(minus, plus, fit, refresh);
     const scroll = h('div', 'termscroll');
     wrap.append(bar, scroll);
     view.appendChild(wrap);
     const xterm = new Terminal({
-      fontFamily: 'ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace', fontSize: fontSize || 11, scrollback: 5000,
-      disableStdin: !control, cursorBlink: control, convertEol: false, allowProposedApi: true,
+      fontFamily: 'ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace', fontSize: fontSize || 14, scrollback: 5000,
+      disableStdin: true, cursorBlink: control, convertEol: false, allowProposedApi: true,
       theme: { background: '#000000', foreground: '#c9d1d9' },
     });
     xterm.open(scroll);
+    // Le PC répond déjà aux requêtes DSR / DA ; un miroir ne doit pas envoyer une seconde réponse.
+    for (const prefix of ['', '?']) xterm.parser.registerCsiHandler({ prefix, final: 'n' }, () => true);
+    for (const prefix of ['', '>', '=']) xterm.parser.registerCsiHandler({ prefix, final: 'c' }, () => true);
     // Rendu WebGL : chaque caractère est dessiné dans sa cellule (pas de décalage quand la police du
     // téléphone n'a pas un glyphe et en prend un d'une autre police, plus large) + traits de cadre dessinés
     if (window.WebglAddon) {
@@ -219,8 +364,10 @@
         xterm.loadAddon(gl);
       } catch (error) { console.warn('WebGL terminal renderer unavailable:', error); }
     }
-    const t = term = { id: tab.sessionId, xterm, mode: r.mode, scroll, follow: true };
+    const t = term = { id: tab.sessionId, xterm, mode: r.mode, scroll, follow: true, replaying: true,
+      robot: r, tabId: tab.id, synchronizing: true, pendingData: [], lastSeq: 0 };
     scroll.addEventListener('scroll', () => {
+      if (t.synchronizing || t.frame) return;
       t.follow = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 12;
     }, { passive: true });
     t.observer = new ResizeObserver(() => {
@@ -231,24 +378,70 @@
     t.observer.observe(scroll);
     if (control) {
       xterm.onData((d) => {
-        if (term === t) sendInput(applyMods(d));
+        // Les anciennes requêtes ANSI (position du curseur, capacités…) ne doivent pas répondre au CLI vivant.
+        if (term === t && !t.replaying) sendInput(applyMods(d));
       });
       wrap.append(keyBar(), inputBar());
     }
     minus.addEventListener('click', () => setFont((xterm.options.fontSize || 11) - 1));
     plus.addEventListener('click', () => setFont((xterm.options.fontSize || 11) + 1));
     fit.addEventListener('click', () => { fontSize = 0; localStorageSet('rc-font', ''); fitFont(); });
+    refresh.addEventListener('click', () => requestTermSnapshot(t));
     send({ t: 'attach', id: tab.sessionId });
   }
   function attachedTerm(t, m) {
     if (!m.found) { t.xterm.write(`\x1b[90m[${T('session introuvable', 'session not found')}]\x1b[0m`); return; }
-    replayInto(t, m, () => { t.xterm.scrollToBottom(); followTerm(t); });
+    requestTermSnapshot(t);
+  }
+  function mirrorData(t, m) {
+    if (t.failed || t.closed) return;
+    if (!Number.isInteger(m.seq) || m.seq < 1) {
+      t.failed = true;
+      t.xterm.options.disableStdin = true;
+      toast(T('Mettez à jour RobotConsole sur le PC puis resynchronisez le terminal.', 'Update RobotConsole on the PC, then resynchronize the terminal.'), true);
+      return;
+    }
+    if (t.synchronizing) { t.pendingData.push(m); return; }
+    if (m.seq <= t.lastSeq) return;
+    t.lastSeq = m.seq;
+    writeLive(t, m.data);
+  }
+  async function requestTermSnapshot(t) {
+    if (t.closed) return;
+    if (t.requesting) { t.resyncAgain = true; return; }
+    t.requesting = true;
+    t.failed = false;
+    t.synchronizing = t.replaying = true;
+    t.xterm.options.disableStdin = true;
+    const result = await action(t.robot, t.tabId, 'terminal-snapshot');
+    if (t.closed || term !== t) return;
+    const state = result.terminal;
+    if (result.error || !state || state.id !== t.id || !Number.isInteger(state.seq) ||
+      !Number.isInteger(state.cols) || state.cols < 2 || !Number.isInteger(state.rows) || state.rows < 2 || typeof state.data !== 'string') {
+      t.requesting = false;
+      t.failed = true;
+      t.pendingData = [];
+      toast(result.error || T('État du terminal indisponible : mettez à jour RobotConsole sur le PC puis resynchronisez.', 'Terminal state unavailable: update RobotConsole on the PC, then resynchronize.'), true);
+      return;
+    }
+    t.lastSeq = state.seq;
+    // Restaure la grille, les lignes déjà coupées et les modes du PC, pas un historique PTY tronqué.
+    replayInto(t, { cols: state.cols, rows: state.rows, data: state.data }, () => {
+      t.requesting = t.synchronizing = false;
+      const queued = t.pendingData;
+      t.pendingData = [];
+      for (const m of queued) mirrorData(t, m);
+      followTerm(t);
+      if (t.resyncAgain) { t.resyncAgain = false; requestTermSnapshot(t); }
+    });
   }
   // Rejoue la sortie du PC morceau par morceau, chacun à la taille du terminal du PC à ce moment-là :
   // les lignes se coupent aux mêmes endroits que sur le PC (Claude Code redessine en remontant le curseur).
   // Pendant le rejeu, la sortie en direct attend son tour.
   function replayInto(t, m, done) {
     t.queue = [];
+    t.replaying = true;
+    t.xterm.options.disableStdin = true;
     live(t, (finish) => {
       t.xterm.reset();
       const segs = m.segs?.length ? m.segs : [{ cols: m.cols, rows: m.rows, data: m.data || '' }];
@@ -257,6 +450,8 @@
         if (t.closed) return;
         if (i >= segs.length) {
           if (m.cols && m.rows && (t.xterm.cols !== m.cols || t.xterm.rows !== m.rows)) t.xterm.resize(m.cols, m.rows);
+          t.replaying = false;
+          t.xterm.options.disableStdin = t.mode !== 'control';
           if (t === term) fitFont();
           done?.();
           finish();
@@ -304,17 +499,17 @@
   }
   function setFont(px) {
     if (!term) return;
-    fontSize = Math.max(5, Math.min(24, px));
+    fontSize = Math.max(12, Math.min(24, px));
     localStorageSet('rc-font', String(fontSize));
     term.xterm.options.fontSize = fontSize;
     followTerm(term);
   }
-  // Taille de police pour que les colonnes du PC tiennent dans la largeur de l'écran
+  // La largeur du PC reste intacte : on défile horizontalement plutôt que de rendre le texte illisible.
   function fitFont() {
     if (!term || fontSize) return;
     const w = term.scroll.clientWidth - 10;
     const cols = term.xterm.cols || 80;
-    const px = Math.max(9, Math.min(15, Math.floor((w / cols) / 0.6)));
+    const px = Math.max(12, Math.min(15, Math.floor((w / cols) / 0.6)));
     term.xterm.options.fontSize = px;
   }
   function viewportChanged() {
@@ -353,7 +548,12 @@
     Object.values(modBtns).forEach((b) => b.classList.remove('on'));
     return out;
   }
-  const sendInput = (data) => { if (term && term.mode === 'control') send({ t: 'input', id: term.id, data }); };
+  const sendInput = (data) => {
+    if (!term || term.mode !== 'control') return;
+    if (term.failed) { toast(T('Terminal indisponible : resynchronisez avec ⟳.', 'Terminal unavailable: resynchronize with ⟳.'), true); return; }
+    if (term.replaying) { toast(T('Synchronisation du terminal en cours…', 'Terminal synchronization in progress…')); return; }
+    send({ t: 'input', id: term.id, data });
+  };
   function keyBar() {
     const bar = h('div', 'keys');
     const KEYS = [
@@ -390,7 +590,12 @@
     f.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!term || term.mode !== 'control') return;
-      if (inp.value) term.xterm.paste(applyMods(inp.value));
+      if (term.failed) { toast(T('Terminal indisponible : resynchronisez avec ⟳.', 'Terminal unavailable: resynchronize with ⟳.'), true); return; }
+      if (term.replaying) { toast(T('Synchronisation du terminal en cours…', 'Terminal synchronization in progress…')); return; }
+      if (inp.value) {
+        if (mods.ctrl || mods.alt) sendInput(applyMods(inp.value));
+        else term.xterm.paste(inp.value);
+      }
       sendInput('\r');
       inp.value = '';
       term.follow = true;
@@ -417,7 +622,7 @@
     const res = await action(robot, tab.id, a.id, { ...(a.args || {}), ...args });
     if (res.error) return toast(res.error, true);
     if (res.toast) toast(res.toast);
-    if (res.text != null || res.image || res.table) showSheet(res);
+    if (res.text != null || res.image || res.table) showSheet(res, { robot, tab });
   }
   function actButtons(list, args) {
     const box = h('div', 'iacts');
@@ -500,18 +705,63 @@
     document.body.appendChild(s);
     // Le bouton « retour » du téléphone ferme la fenêtre plein écran
     history.pushState({ sheet: true }, '');
-    const onPop = () => { removeEventListener('popstate', onPop); s.remove(); s.onClose?.(); };
+    const onPop = () => {
+      if (s.canClose && !s.canClose()) { history.pushState({ sheet: true }, ''); return; }
+      removeEventListener('popstate', onPop); s.remove(); s.onClose?.();
+    };
     addEventListener('popstate', onPop);
     back.addEventListener('click', () => history.back());
     return s;
   }
-  function showSheet(res) {
+  function showSheet(res, target) {
     const s = sheet(res.title);
     if (res.image) { const img = h('img'); img.src = res.image; s.body.appendChild(img); return; }
     if (res.table) {
       const t = h('table', 'grid');
       t.innerHTML = `<thead><tr>${res.table.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${res.table.rows.map((r) => `<tr>${r.map((v) => (v === null ? '<td class="null">NULL</td>' : `<td>${esc(v)}</td>`)).join('')}</tr>`).join('')}</tbody>`;
       s.body.appendChild(t);
+      return;
+    }
+    if (res.edit && target?.robot.mode === 'control') {
+      const { robot, tab } = target;
+      const edit = res.edit;
+      const input = h('textarea', 'file-editor');
+      input.value = edit.original;
+      input.setAttribute('aria-label', res.title || T('Fichier texte', 'Text file'));
+      input.spellcheck = false;
+      input.autocapitalize = 'off';
+      input.autocomplete = 'off';
+      input.setAttribute('autocorrect', 'off');
+      const save = h('button', 'btn primary', T('Enregistrer', 'Save'));
+      let saving = false;
+      let baseline = input.value;
+      const dirty = () => input.value !== baseline;
+      const update = () => { save.disabled = saving || !dirty(); };
+      input.addEventListener('input', update);
+      save.addEventListener('click', async () => {
+        const current = robots.find((r) => r.wcId === robot.wcId && r.key === robot.key);
+        if (!current || current.mode !== 'control') { toast(T('Robot en lecture seule', 'Robot is read-only'), true); return; }
+        saving = true; input.readOnly = true; update();
+        // Les textarea normalisent CRLF en LF ; conserver les fins de ligne du fichier.
+        const crlf = edit.original.includes('\r\n') && !/(^|[^\r])\n/.test(edit.original);
+        const content = crlf ? input.value.replace(/\n/g, '\r\n') : input.value;
+        const result = await action(robot, tab.id, 'save', { item: edit.file, content, original: edit.original, mtime: edit.mtime });
+        saving = false; input.readOnly = false;
+        if (result.error) toast(result.error, true);
+        else { baseline = input.value; edit.original = content; edit.mtime = result.mtime; toast(result.toast || T('Fichier enregistré', 'File saved')); }
+        update();
+      });
+      input.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (!save.disabled) save.click(); }
+      });
+      s.canClose = () => {
+        if (saving) { toast(T('Enregistrement en cours…', 'Saving…')); return false; }
+        return !dirty() || confirm(T('Abandonner les modifications non enregistrées ?', 'Discard unsaved changes?'));
+      };
+      s.querySelector('header').appendChild(save);
+      s.body.classList.add('file-editor-body');
+      s.body.appendChild(input);
+      update();
       return;
     }
     const pre = h('pre', res.diff ? '' : 'wrap');
