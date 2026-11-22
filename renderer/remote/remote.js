@@ -45,15 +45,15 @@
         if (m.denied) toast(T('Accès refusé', 'Access denied'), true);
         break;
       case 'data':
-        if (term?.id === m.id) live(term, () => term.xterm.write(m.data));
-        if (sheetLog?.id === m.id) live(sheetLog, () => sheetLog.xterm.write(m.data));
+        if (term?.id === m.id) writeLive(term, m.data);
+        if (sheetLog?.id === m.id) writeLive(sheetLog, m.data);
         break;
       case 'resized':
-        if (term?.id === m.id) live(term, () => { term.xterm.resize(m.cols, m.rows); fitFont(); });
-        if (sheetLog?.id === m.id) live(sheetLog, () => sheetLog.xterm.resize(m.cols, m.rows));
+        if (term?.id === m.id) resizeLive(term, m.cols, m.rows);
+        if (sheetLog?.id === m.id) resizeLive(sheetLog, m.cols, m.rows);
         break;
       case 'exit':
-        if (term?.id === m.id) term.xterm.write(m.revoked ? `\r\n\x1b[33m[${T('accès retiré', 'access revoked')}]\x1b[0m\r\n` : `\r\n\x1b[90m[${T('processus terminé', 'process exited')}${m.code != null ? ' · code ' + m.code : ''}]\x1b[0m\r\n`);
+        if (term?.id === m.id) writeLive(term, m.revoked ? `\r\n\x1b[33m[${T('accès retiré', 'access revoked')}]\x1b[0m\r\n` : `\r\n\x1b[90m[${T('processus terminé', 'process exited')}${m.code != null ? ' · code ' + m.code : ''}]\x1b[0m\r\n`);
         break;
       case 'snapshot':
         if (watching && watching.wcId === m.wcId && watching.tabId === m.tabId) renderSnapshot(m.snap);
@@ -199,6 +199,7 @@
     const wrap = h('div', 'termwrap');
     const bar = h('div', 'termbar', `<span>${control ? T('Contrôle : ce que vous tapez part sur le PC', 'Control: what you type goes to the PC') : T('Lecture seule', 'Read-only')}</span><span class="sp"></span>`);
     const minus = h('button', 'btn small', 'A−'), plus = h('button', 'btn small', 'A+'), fit = h('button', 'btn small', '↔');
+    fit.title = T('Adapter la largeur (défilement horizontal si nécessaire)', 'Fit width (scroll horizontally if needed)');
     bar.append(minus, plus, fit);
     const scroll = h('div', 'termscroll');
     wrap.append(bar, scroll);
@@ -212,11 +213,26 @@
     // Rendu WebGL : chaque caractère est dessiné dans sa cellule (pas de décalage quand la police du
     // téléphone n'a pas un glyphe et en prend un d'une autre police, plus large) + traits de cadre dessinés
     if (window.WebglAddon) {
-      try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); xterm.loadAddon(gl); } catch {}
+      try {
+        const gl = new WebglAddon.WebglAddon();
+        gl.onContextLoss(() => { console.warn('WebGL context lost; using the DOM terminal renderer'); gl.dispose(); });
+        xterm.loadAddon(gl);
+      } catch (error) { console.warn('WebGL terminal renderer unavailable:', error); }
     }
-    term = { id: tab.sessionId, xterm, mode: r.mode, scroll };
+    const t = term = { id: tab.sessionId, xterm, mode: r.mode, scroll, follow: true };
+    scroll.addEventListener('scroll', () => {
+      t.follow = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 12;
+    }, { passive: true });
+    t.observer = new ResizeObserver(() => {
+      if (t !== term || t.closed) return;
+      fitFont();
+      followTerm(t);
+    });
+    t.observer.observe(scroll);
     if (control) {
-      xterm.onData((d) => sendInput(applyMods(d)));
+      xterm.onData((d) => {
+        if (term === t) sendInput(applyMods(d));
+      });
       wrap.append(keyBar(), inputBar());
     }
     minus.addEventListener('click', () => setFont((xterm.options.fontSize || 11) - 1));
@@ -226,52 +242,97 @@
   }
   function attachedTerm(t, m) {
     if (!m.found) { t.xterm.write(`\x1b[90m[${T('session introuvable', 'session not found')}]\x1b[0m`); return; }
-    replayInto(t, m, () => t.xterm.scrollToBottom());
+    replayInto(t, m, () => { t.xterm.scrollToBottom(); followTerm(t); });
   }
   // Rejoue la sortie du PC morceau par morceau, chacun à la taille du terminal du PC à ce moment-là :
   // les lignes se coupent aux mêmes endroits que sur le PC (Claude Code redessine en remontant le curseur).
   // Pendant le rejeu, la sortie en direct attend son tour.
   function replayInto(t, m, done) {
-    t.xterm.reset();
     t.queue = [];
-    const segs = m.segs?.length ? m.segs : [{ cols: m.cols, rows: m.rows, data: m.data || '' }];
-    let i = 0;
-    const next = () => {
-      if (t.queue == null || t.closed) return;
-      if (i >= segs.length) {
-        const q = t.queue;
-        t.queue = null;
-        if (m.cols && m.rows && (t.xterm.cols !== m.cols || t.xterm.rows !== m.rows)) t.xterm.resize(m.cols, m.rows);
-        if (t === term) fitFont();
-        q.forEach((f) => f());
-        return done?.();
-      }
-      const g = segs[i++];
-      if (g.cols && g.rows && (g.cols !== t.xterm.cols || g.rows !== t.xterm.rows)) t.xterm.resize(g.cols, g.rows);
-      t.xterm.write(g.data || '', next);
-    };
-    next();
+    live(t, (finish) => {
+      t.xterm.reset();
+      const segs = m.segs?.length ? m.segs : [{ cols: m.cols, rows: m.rows, data: m.data || '' }];
+      let i = 0;
+      const next = () => {
+        if (t.closed) return;
+        if (i >= segs.length) {
+          if (m.cols && m.rows && (t.xterm.cols !== m.cols || t.xterm.rows !== m.rows)) t.xterm.resize(m.cols, m.rows);
+          if (t === term) fitFont();
+          done?.();
+          finish();
+          return;
+        }
+        const g = segs[i++];
+        if (g.cols && g.rows && (g.cols !== t.xterm.cols || g.rows !== t.xterm.rows)) t.xterm.resize(g.cols, g.rows);
+        t.xterm.write(g.data || '', next);
+      };
+      next();
+    });
   }
-  function live(t, f) { if (t.queue) t.queue.push(f); else f(); }
+  // write() est asynchrone : resize() doit attendre le traitement du texte à l'ancienne taille.
+  function live(t, f) {
+    if (t.closed) return;
+    (t.queue ||= []).push(f);
+    drain(t);
+  }
+  function drain(t) {
+    if (t.closed || t.busy || !t.queue?.length) return;
+    t.busy = true;
+    t.queue.shift()(() => {
+      t.busy = false;
+      if (!t.closed) drain(t);
+    });
+  }
+  function writeLive(t, data) {
+    live(t, (done) => t.xterm.write(data, () => { followTerm(t); done(); }));
+  }
+  function resizeLive(t, cols, rows) {
+    live(t, (done) => {
+      t.xterm.resize(cols, rows);
+      if (t === term) fitFont();
+      followTerm(t);
+      done();
+    });
+  }
+  function followTerm(t) {
+    if (t !== term || !t.follow || t.closed || t.frame) return;
+    t.frame = requestAnimationFrame(() => {
+      t.frame = null;
+      if (t.closed || !t.follow) return;
+      t.scroll.scrollTop = t.scroll.scrollHeight;
+    });
+  }
   function setFont(px) {
     if (!term) return;
     fontSize = Math.max(5, Math.min(24, px));
     localStorageSet('rc-font', String(fontSize));
     term.xterm.options.fontSize = fontSize;
+    followTerm(term);
   }
   // Taille de police pour que les colonnes du PC tiennent dans la largeur de l'écran
   function fitFont() {
     if (!term || fontSize) return;
     const w = term.scroll.clientWidth - 10;
     const cols = term.xterm.cols || 80;
-    const px = Math.max(5, Math.min(15, Math.floor((w / cols) / 0.6)));
+    const px = Math.max(9, Math.min(15, Math.floor((w / cols) / 0.6)));
     term.xterm.options.fontSize = px;
   }
-  addEventListener('resize', () => fitFont());
+  function viewportChanged() {
+    const viewport = window.visualViewport;
+    document.documentElement.style.setProperty('--app-height', `${viewport?.height || innerHeight}px`);
+    fitFont();
+    if (term) followTerm(term);
+  }
+  addEventListener('resize', viewportChanged);
+  window.visualViewport?.addEventListener('resize', viewportChanged);
+  viewportChanged();
   function closeTerm() {
     if (!term) return;
     send({ t: 'detach', id: term.id });
     term.closed = true;
+    term.observer?.disconnect();
+    if (term.frame) cancelAnimationFrame(term.frame);
+    mods.ctrl = mods.alt = false;
     term.xterm.dispose();
     term = null;
   }
@@ -296,8 +357,9 @@
   function keyBar() {
     const bar = h('div', 'keys');
     const KEYS = [
-      ['Échap', '\x1b'], ['Tab', '\t'], ['Ctrl', 'ctrl'], ['Alt', 'alt'], ['^C', '\x03'], ['^D', '\x04'], ['^Z', '\x1a'], ['^L', '\x0c'],
+      ['Échap', '\x1b'], ['Tab', '\t'], ['⌫', '\x7f'], ['Ctrl', 'ctrl'], ['Alt', 'alt'], ['^C', '\x03'], ['^D', '\x04'], ['^Z', '\x1a'], ['^L', '\x0c'],
       ['↑', '\x1b[A'], ['↓', '\x1b[B'], ['←', '\x1b[D'], ['→', '\x1b[C'], ['⇞', '\x1b[5~'], ['⇟', '\x1b[6~'], ['Début', '\x1b[H'], ['Fin', '\x1b[F'], ['⏎', '\r'],
+      ['⇧⏎', '\x1b\r'],
     ];
     modBtns = {};
     for (const [label, seq] of KEYS) {
@@ -306,7 +368,8 @@
         modBtns[seq] = b;
         b.addEventListener('click', () => { mods[seq] = !mods[seq]; b.classList.toggle('on', mods[seq]); });
       } else b.addEventListener('click', () => { sendInput(applyMods(seq)); });
-      b.addEventListener('mousedown', (e) => e.preventDefault()); // garde le clavier ouvert
+      b.addEventListener('pointerdown', (e) => e.preventDefault()); // garde le clavier tactile ouvert
+      b.addEventListener('mousedown', (e) => e.preventDefault());
       bar.appendChild(b);
     }
     return bar;
@@ -319,8 +382,20 @@
     inp.setAttribute('autocorrect', 'off');
     const go = h('button', 'btn primary', '⏎');
     go.type = 'submit';
+    go.addEventListener('pointerdown', (e) => e.preventDefault());
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.isComposing) e.preventDefault();
+    });
     f.append(inp, go);
-    f.addEventListener('submit', (e) => { e.preventDefault(); sendInput(applyMods(inp.value) + '\r'); inp.value = ''; });
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!term || term.mode !== 'control') return;
+      if (inp.value) term.xterm.paste(applyMods(inp.value));
+      sendInput('\r');
+      inp.value = '';
+      term.follow = true;
+      followTerm(term);
+    });
     return f;
   }
 

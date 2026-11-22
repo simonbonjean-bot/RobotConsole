@@ -39,6 +39,9 @@
     showSplash: true,
     language: 'auto',
     robotVolume: 70,
+    toolAnim: 'tap', // animation de l'icône « Travaille sur » pendant l'activité de la zone
+    robotBodyInZone: true, // corps du robot qui dépasse de l'en-tête sur l'onglet courant
+    crewStyle: 'classic', // style de la barre des robots : classic, compact, dock, labels, flat
   };
 
   const FONTS = [
@@ -154,6 +157,59 @@
       grid.appendChild(card);
     }
     return grid;
+  }
+
+  // Style de la barre des robots : cartes avec une petite maquette de chaque style
+  const CREW_STYLES = [
+    ['classic', 'Classique', 'Robots et icônes des onglets dans des cadres'],
+    ['compact', 'Compacte', 'Barre fine, petits robots : plus de place pour les zones'],
+    ['dock', 'Dock', 'Grands robots seuls, nombre d\'onglets en badge'],
+    ['labels', 'Étiquettes', 'Robot, nom de l\'espace et onglets en dessous'],
+    ['flat', 'Épurée', 'Sans cadres, le robot actif est souligné'],
+  ];
+  function crewStyleCards() {
+    const grid = el('div', 'crew-style-grid');
+    const bot = (c) => `<i class="cs-bot" style="--c:${c}"></i>`;
+    const tabs = (n) => '<i class="cs-tab"></i>'.repeat(n);
+    for (const [id, name, hint] of CREW_STYLES) {
+      const card = el('button', 'crew-style-card' + ((data.crewStyle || 'classic') === id ? ' active' : ''));
+      card.title = hint;
+      card.innerHTML = `<div class="cs-prev cs-${id}">
+          <span class="cs-item on">${bot('#58a6ff')}<b class="cs-name">Boka</b><span class="cs-tabs">${tabs(3)}</span><em class="cs-count">3</em></span>
+          <span class="cs-item">${bot('#e5539b')}<b class="cs-name">Zaproo</b><span class="cs-tabs">${tabs(2)}</span><em class="cs-count">2</em></span>
+        </div>
+        <div class="theme-name">${name}</div><small class="cs-hint">${hint}</small>`;
+      card.addEventListener('click', () => {
+        set({ crewStyle: id });
+        grid.querySelectorAll('.crew-style-card').forEach((c) => c.classList.toggle('active', c === card));
+      });
+      grid.appendChild(card);
+    }
+    return grid;
+  }
+
+  // Animation de l'icône « Travaille sur » : une carte par animation, avec un aperçu qui joue en boucle
+  const TOOL_ANIMS = [['tap', 'Coups de marteau'], ['bounce', 'Rebond'], ['shake', 'Vibration'], ['pulse', 'Pulsation'], ['swing', 'Balancier'], ['none', 'Aucune']];
+  function toolAnimBlock() {
+    const wrap = el('div', 'set-row set-row-block');
+    const lab = el('div', 'set-label');
+    lab.textContent = "Animation de l'icône « Travaille sur »";
+    lab.appendChild(el('small', '', "Seulement quand la zone a de l'activité ; immobile au repos"));
+    const grid = el('div', 'tool-anim-grid');
+    let svg = '';
+    try { svg = window.Robot ? Robot.generate(2024, { traits: { tool: 'lu:square-terminal', accessory: 'none' } }).svg : ''; } catch {}
+    for (const [id, name] of TOOL_ANIMS) {
+      const card = el('button', 'tool-anim-card tool-anim-demo' + ((data.toolAnim || 'tap') === id ? ' active' : ''));
+      card.dataset.toolAnim = id;
+      card.innerHTML = `<div class="robot">${svg}</div><div class="theme-name">${name}</div>`;
+      card.addEventListener('click', () => {
+        set({ toolAnim: id });
+        grid.querySelectorAll('.tool-anim-card').forEach((c) => c.classList.toggle('active', c === card));
+      });
+      grid.appendChild(card);
+    }
+    wrap.append(lab, grid);
+    return wrap;
   }
 
   // Dossiers favoris de l'explorateur (menu « ＋ Espace › Explorateur favori »)
@@ -376,9 +432,12 @@
           row("Supprimer les espaces de fin à l'enregistrement", toggle('editorTrimOnSave')),
           row("Saut de ligne final à l'enregistrement", toggle('editorFinalNewline')),
         ),
+        section('Barre des robots', crewStyleCards()),
         section('Robots',
           row('Animations', toggle('robotAnimations'), 'Clignement, bouche qui parle, antenne'),
           row('Bulles de dialogue', toggle('robotBubbles')),
+          toolAnimBlock(),
+          row('Corps du robot dans la zone', toggle('robotBodyInZone'), "Le robot de l'en-tête dépasse un peu sur l'onglet courant"),
           row('Volume des sons', range('robotVolume', 0, 100, 5, (v) => `${v} %`), 'Son joué quand un robot a fini (clic droit sur un robot → 🔔)'),
         ),
         section('Explorateur de fichiers',

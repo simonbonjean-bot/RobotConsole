@@ -154,7 +154,8 @@
     mSmall.addEventListener('click', () => { big = false; renderStage(); });
     mBig.addEventListener('click', () => { big = true; renderStage(); });
     name.addEventListener('input', () => { over.name = name.value; });
-    bNew.addEventListener('click', () => { seed = Robot.randomSeed(); over = {}; refresh(); });
+    // Nouveau robot : nouvelle allure, mais l'outil (« Travaille sur ») reste celui choisi : jamais une icône au hasard
+    bNew.addEventListener('click', () => { const tool = gen().traits.tool; seed = Robot.randomSeed(); over = { tool }; refresh(); });
     bReset.addEventListener('click', () => { over = {}; refresh(); });
     bShuffle.addEventListener('click', () => {
       for (const key of SECTIONS) {

@@ -74,7 +74,18 @@
 .robot .an-accessory.v-bowtie, .robot .an-accessory.v-crown { animation: ra-pulse 2s ease-in-out infinite; }
 .robot .an-accessory.v-glasses, .robot .an-accessory.v-monocle, .robot .an-accessory.v-eyepatch { animation: ra-bob 3s ease-in-out infinite; }
 .robot .an-accessory.v-scarf { transform-origin: 50% 0; animation: ra-cape 2.6s ease-in-out infinite; }
-.robot .an-tool { animation: ra-float 2.6s ease-in-out infinite alternate; }
+/* Icône « Travaille sur » : immobile au repos, animée seulement quand la zone a de l'activité (.talking).
+   L'animation se choisit dans Réglages → Robots (body[data-tool-anim]).
+   L'élément le plus proche portant data-tool-anim l'emporte (variables CSS héritées) : les aperçus des
+   Réglages ont chacun le leur. .tool-anim-demo force l'animation (aperçu, sans activité). */
+[data-tool-anim="tap"], body { --tool-anim: ra-work 1.1s ease-in-out infinite; --tool-origin: 50% 100%; }
+[data-tool-anim="bounce"] { --tool-anim: ra-tool-bounce .55s cubic-bezier(.3, 0, .5, 1) infinite alternate; --tool-origin: 50% 100%; }
+[data-tool-anim="shake"] { --tool-anim: ra-tool-shake .32s linear infinite; --tool-origin: 50% 50%; }
+[data-tool-anim="pulse"] { --tool-anim: ra-tool-pulse .8s ease-in-out infinite; --tool-origin: 50% 50%; }
+[data-tool-anim="swing"] { --tool-anim: ra-tool-swing 1s ease-in-out infinite alternate; --tool-origin: 50% 0; }
+[data-tool-anim="none"] { --tool-anim: none; --tool-origin: 50% 100%; }
+.robot .an-tool { transform-box: fill-box; transform-origin: var(--tool-origin, 50% 100%); }
+.robot.talking .an-tool, .tool-anim-demo .robot .an-tool { animation: var(--tool-anim, ra-work 1.1s ease-in-out infinite); }
 
 /* ---------- Motif, état, finition ---------- */
 .robot .an-pattern { animation: ra-fade 3s ease-in-out infinite; }
@@ -140,3 +151,25 @@
 @keyframes ra-shine { 0% { transform: translateX(-18px); opacity: 0; } 30% { opacity: 1; } 70% { opacity: 1; } 100% { transform: translateX(34px); opacity: 0; } }
 @keyframes ra-neon { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } 53% { filter: brightness(.85); } 56% { filter: brightness(1.25); } }
 @keyframes ra-sheen { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
+
+/* Options ajoutées : yeux en spirale, oreilles-engrenages, ballon, drapeau, finitions or / chrome */
+.robot .an-eyes.v-spiral .spin { animation: ra-spin 2.6s linear infinite; }
+.robot .an-ears.v-gears .gear-spin { animation: ra-spin 5s linear infinite; }
+.robot .an-gear.v-balloon { animation: ra-balloon 3.4s ease-in-out infinite; }
+.robot .an-antenna.v-flag { animation: ra-wobble 2s ease-in-out infinite; }
+.robot .an-finish.v-gold, .robot .an-finish.v-chrome { animation: ra-sheen 3s ease-in-out infinite; }
+@keyframes ra-balloon { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+/* Icône « Travaille sur » : le robot tape dessus (deux petits coups), puis repos */
+@keyframes ra-work {
+  0%, 58%, 100% { transform: none; }
+  63% { transform: translateY(-3px) rotate(-6deg); }
+  67% { transform: translateY(1px) scale(1.07, .9); }
+  71% { transform: translateY(-2px) rotate(5deg); }
+  75% { transform: translateY(1px) scale(1.05, .93); }
+  81% { transform: translateY(-.5px) rotate(-1.5deg); }
+  87% { transform: none; }
+}
+@keyframes ra-tool-bounce { from { transform: translateY(0) scale(1.03, .96); } to { transform: translateY(-5px) scale(.98, 1.03); } }
+@keyframes ra-tool-shake { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-7deg) translateX(-.6px); } 75% { transform: rotate(7deg) translateX(.6px); } }
+@keyframes ra-tool-pulse { 0%, 100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.13); filter: brightness(1.25) drop-shadow(0 0 2px rgba(255, 255, 255, .6)); } }
+@keyframes ra-tool-swing { from { transform: rotate(-10deg); } to { transform: rotate(10deg); } }

@@ -64,6 +64,7 @@
 
   function iconHtml(icon) {
     if (!icon || icon === '>_') return '<span class="kind-term">&gt;_</span>';
+    if (icon.startsWith('tool:') && ToolIcons.get(icon.slice(5))) return `<span class="tm-ico tm-tool">${ToolIcons.html(icon.slice(5))}</span>`;
     return `<span class="tm-ico">${esc(icon)}</span>`;
   }
 
@@ -88,7 +89,7 @@
   function tabToModel(tab) {
     const s = TabKinds[tab.kind].serialize(tab);
     const m = {
-      id: uid(), name: tab.title, autoTitle: !tab.customTitle, icon: tab.model?.icon || KINDS[tab.kind]?.icon || '>_', kind: tab.kind,
+      id: uid(), name: tab.title, autoTitle: !tab.customTitle, icon: tab.icon || tab.model?.icon || KINDS[tab.kind]?.icon || '>_', kind: tab.kind,
       url: s.url,
       shellId: s.shellId || '', dir: s.cwd || s.root || '', commands: (s.commands || []).join ? (s.commands || []).join('\n') : (s.commands || ''),
     };
@@ -425,7 +426,7 @@
   // Grille de choix d'icône sous « anchor ». allowNone : propose « aucune icône » (onPick(null))
   // Sélecteur complet (recherche, catégories, récents) ; ICONS sert de « Suggestions »
   function pickIcon(anchor, onPick, allowNone) {
-    EmojiPicker.open(anchor, { onPick, allowNone, suggestions: ICONS, render: iconHtml });
+    EmojiPicker.open(anchor, { onPick, allowNone, suggestions: ICONS, render: iconHtml, tools: true });
   }
 
   function iconButton(icon, onPick, allowNone) {
@@ -468,7 +469,8 @@
       UI.menu([
         { title: 'Robot de la zone' },
         { label: 'Personnaliser (atelier)…', icon: '🛠', action: () => face.click() },
-        { label: 'Nouveau robot', icon: '🎲', action: () => upd({ seed: Robot.randomSeed(), traits: undefined }, true) },
+        // Nouvelle allure, même outil (jamais une icône tirée au hasard)
+        { label: 'Nouveau robot', icon: '🎲', action: () => upd({ seed: Robot.randomSeed(), traits: { tool: cur.seed != null ? Robot.generate(cur.seed, { traits: cur.traits }).traits.tool : 'none' } }, true) },
         { label: 'Prendre le robot de l\'espace actif', icon: '🤖', disabled: !CAI.activeSpace, action: () => upd({ seed: CAI.activeSpace.seed, traits: CAI.activeSpace.traits || undefined }, true) },
         '-',
         { label: 'Au hasard à chaque ouverture', icon: '✕', checked: cur.seed == null, disabled: cur.seed == null, action: () => upd({ seed: undefined, traits: undefined }, true) },
@@ -644,7 +646,7 @@
       const addM = h('button', 'tb-btn small', '🧩 Depuis un modèle d\'onglet');
       addM.addEventListener('click', (e) => {
         e.stopPropagation();
-        UI.menu(models.map((m) => ({ label: m.name, icon: m.icon === '>_' ? '>_' : m.icon, hint: kindOf(m).label, action: () => upd({ tabs: [...tabs(), { ...clean(m), id: uid(), autoTitle: false }] }, true) })), addM);
+        UI.menu(models.map((m) => ({ label: m.name, icon: iconHtml(m.icon), hint: kindOf(m).label, action: () => upd({ tabs: [...tabs(), { ...clean(m), id: uid(), autoTitle: false }] }, true) })), addM);
       });
       actions.appendChild(addM);
     }
@@ -707,7 +709,7 @@
       const addM = h('button', 'tb-btn small', '🗂 Depuis un modèle de zone');
       addM.addEventListener('click', (e) => {
         e.stopPropagation();
-        UI.menu(zm.map((z) => ({ label: z.name, icon: z.icon, hint: summary('zone', z), action: () => {
+        UI.menu(zm.map((z) => ({ label: z.name, icon: iconHtml(z.icon || '🗂'), hint: summary('zone', z), action: () => {
           const { id, icon, fromWs, ...rest } = z;
           addZone(JSON.parse(JSON.stringify(rest)));
         } })), addM);
@@ -722,7 +724,7 @@
   function menuItems(space) {
     const models = all('tab');
     return [
-      ...models.map((m) => ({ label: m.name, icon: m.icon === '>_' ? '>_' : m.icon, hint: `${kindOf(m).label}${m.fromWs ? ' · workspace' : ''}`, action: () => open(m, space) })),
+      ...models.map((m) => ({ label: m.name, icon: iconHtml(m.icon), hint: `${kindOf(m).label}${m.fromWs ? ' · workspace' : ''}`, action: () => open(m, space) })),
       models.length ? '-' : { label: 'Aucun modèle pour l\'instant', disabled: true },
       { label: 'Gérer les modèles…', icon: '🧩', action: () => openManager(null, 'tab') },
     ];
@@ -730,7 +732,7 @@
   function zoneMenuItems(space) {
     const models = all('zone');
     return [
-      ...models.map((z) => ({ label: z.name, icon: z.icon || '🗂', hint: `${summary('zone', z)}${z.fromWs ? ' · workspace' : ''}`, action: () => CAI.openZoneModel(z, space) })),
+      ...models.map((z) => ({ label: z.name, icon: iconHtml(z.icon || '🗂'), hint: `${summary('zone', z)}${z.fromWs ? ' · workspace' : ''}`, action: () => CAI.openZoneModel(z, space) })),
       models.length ? '-' : { label: 'Aucun modèle de zone', disabled: true },
       { label: 'Gérer les modèles de zone…', icon: '🧩', action: () => openManager(null, 'zone') },
     ];
@@ -738,7 +740,7 @@
   function screenMenuItems() {
     const models = all('screen');
     return [
-      ...models.map((s) => ({ label: s.name, icon: s.icon || '▣', hint: `${summary('screen', s)}${s.fromWs ? ' · workspace' : ''}`, action: () => CAI.openScreenModel(s) })),
+      ...models.map((s) => ({ label: s.name, icon: iconHtml(s.icon || '▣'), hint: `${summary('screen', s)}${s.fromWs ? ' · workspace' : ''}`, action: () => CAI.openScreenModel(s) })),
       models.length ? '-' : { label: 'Aucun modèle d\'écran', disabled: true },
       { label: 'Gérer les modèles d\'écran…', icon: '🧩', action: () => openManager(null, 'screen') },
     ];

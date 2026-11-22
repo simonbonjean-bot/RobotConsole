@@ -70,6 +70,7 @@
       remote: sp.remote && sp.remote !== 'off' ? sp.remote : undefined,
       rid: sp.rid,
       parked: sp.parked || undefined,
+      asleep: sp.asleep || undefined,
       activeTab: sp.tabs.indexOf(sp.activeTab),
       tabs: sp.tabs.map((t) => ({ kind: t.kind, title: t.customTitle ? t.title : null, model: t.model || undefined, icon: t.icon || undefined, ...kindOf(t).serialize(t) })),
     };
@@ -88,20 +89,32 @@
       el.style.setProperty('--space-accent', accent);
       el.style.setProperty('--space-glow', b.glow);
     }
-    space.robotEl.innerHTML = b.svg;
+    // En-tête de la zone : robot en pied, la tête à sa place habituelle et le corps qui dépasse
+    // sur l'onglet courant (réglage « Corps du robot dans la zone »)
+    const full = Robot.generate(space.seed, { legs: true, traits: space.traits, context: { tabKind: space.activeTab?.kind } });
+    const withBody = Settings.data.robotBodyInZone !== false;
+    space.robotEl.innerHTML = withBody ? full.svg : b.svg;
+    space.robotEl.classList.toggle('with-body', withBody);
+    if (withBody) {
+      const vh = +(/viewBox="0 0 [\d.]+ ([\d.]+)"/.exec(full.svg)?.[1] || 100);
+      space.robotEl.style.setProperty('--body-h', (vh / 100).toFixed(3));
+    }
     space.robotEl.classList.toggle('has-tool', b.tool !== 'none');
     space.robotEl.style.setProperty('--blink-delay', `-${b.blinkDelay}s`);
     space.crewFace.innerHTML = '';
     space.crewFace.classList.toggle('has-tool', b.tool !== 'none');
-    const mini = h('div', 'robot', b.svg);
+    const svg = space.asleep ? Robot.generate(space.seed, { traits: { ...(space.traits || {}), eyes: 'sleepy' }, context: { tabKind: space.activeTab?.kind } }).svg : b.svg;
+    const mini = h('div', 'robot', svg);
     mini.style.setProperty('--blink-delay', `-${b.blinkDelay}s`);
     space.crewFace.appendChild(mini);
     space.crewRobot = mini;
+    space.crewEl.classList.toggle('asleep', !!space.asleep);
     if (space.remoteEl) updateRemoteBadge(space);
-    space.emptyRobot.innerHTML = Robot.generate(space.seed, { legs: true, traits: space.traits, context: { tabKind: space.activeTab?.kind } }).svg;
+    space.emptyRobot.innerHTML = full.svg;
     space.emptyRobot.classList.toggle('has-tool', b.tool !== 'none');
     if (!space.customName) space.name = b.name;
     space.nameEl.textContent = space.name;
+    space.crewName.textContent = space.name;
     // Un onglet pas encore monté (openTab active l'onglet avant mount) n'a pas encore son état interne
     for (const t of space.tabs) if (t.mounted) kindOf(t).applyTheme?.(t);
   }
@@ -368,6 +381,7 @@
       activeTab: null,
       lastShell: null,
       parked: !!opts.parked,
+      asleep: !!opts.asleep, // réduit dans la barre des robots (double-clic sur le robot)
       traits: opts.traits || null, // réglages de l'atelier (sinon : tirage de la graine)
       icon: opts.icon || null, // icône de la zone (modèle de zone ou choix manuel)
       sound: opts.sound || null, // son joué quand le robot a fini de travailler : { id, delay }
@@ -439,8 +453,11 @@
     const crewFace = h('div', 'crew-bot');
     const crewIcon = h('span', 'crew-zone-icon');
     const crewTabs = h('div', 'crew-tabs');
-    crewItem.append(crewFace, crewIcon, crewTabs);
-    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, remoteEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs });
+    const crewName = h('div', 'crew-name');
+    const crewInfo = h('div', 'crew-info'); // display: contents, sauf pour le style « Étiquettes »
+    crewInfo.append(crewName, crewTabs);
+    crewItem.append(crewFace, crewIcon, crewInfo);
+    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, remoteEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs, crewName });
     applyBot(space);
     applyIcon(space);
     updateSoundBadge(space);
@@ -499,6 +516,11 @@
       setActiveSpace(space, true);
       wave(space);
     });
+    crewFace.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (Date.now() - (space.wokeAt || 0) < 600) return;
+      toggleSleep(space);
+    });
     crewItem.addEventListener('contextmenu', (e) => { e.preventDefault(); hideTip(); UI.menu(spaceMenuItems(space), e.clientX, e.clientY); });
     crewFace.addEventListener('mouseenter', () => showTip(space));
     crewFace.addEventListener('mouseleave', hideTip);
@@ -530,6 +552,26 @@
     renderCrew();
   }
 
+  // Robot « endormi » : sa zone quitte l'écran (comme « Ranger ») et le robot se réduit dans la barre,
+  // ses onglets résumés par un badge. Un clic sur le robot (ou un de ses onglets) le réveille.
+  function toggleSleep(space) {
+    hideTip();
+    if (space.asleep) return wakeSpace(space);
+    space.asleep = true;
+    applyBot(space);
+    if (!space.parked) parkSpace(space);
+    else { renderCrewTabs(space); save(); }
+  }
+  function wakeSpace(space) {
+    if (space.parked) return unparkSpace(space); // unparkSpace réveille le robot
+    space.asleep = false;
+    space.wokeAt = Date.now();
+    applyBot(space);
+    renderCrewTabs(space);
+    wave(space);
+    save();
+  }
+
   function spaceMenuItems(space) {
     return [
       { title: space.name },
@@ -550,6 +592,7 @@
       ] },
       '-',
       space.parked ? { label: 'Ressortir l\'espace', icon: '⤒', action: () => unparkSpace(space) } : { label: 'Ranger l\'espace', icon: '⤓', action: () => parkSpace(space) },
+      { label: space.asleep ? 'Réveiller le robot' : 'Endormir le robot (barre des robots)', icon: '💤', hint: 'double-clic', action: () => toggleSleep(space) },
       !space.parked && { label: maximized === space ? 'Restaurer' : 'Agrandir', icon: '⤢', hint: 'Ctrl+Maj+M', action: () => toggleMaximize(space) },
       !space.parked && { label: 'Ancrer', icon: '⊞', submenu: ['left', 'right', 'top', 'bottom'].map((side) => ({ label: { left: 'Tout à gauche', right: 'Tout à droite', top: 'Tout en haut', bottom: 'Tout en bas' }[side], action: () => { Layout.dock(space.id, null, side); renderLayout(); save(); } })) },
       '-',
@@ -562,6 +605,7 @@
       space.customName = !!v;
       space.name = v || space.bot.name;
       space.nameEl.textContent = space.name;
+      space.crewName.textContent = space.name;
       renderCrew();
       save();
     });
@@ -608,7 +652,7 @@
   function receiveSpaces(state) {
     let last = null;
     for (const ss of state.spaces || []) {
-      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, screenId: activeScreenId });
+      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: activeScreenId });
       for (const t of ss.tabs || []) { const { title, ...spec } = t; openTab(sp, { kind: 'terminal', ...spec }, { title }); }
       const at = sp.tabs[ss.activeTab] || sp.tabs[0];
       if (at) activateTab(at, false);
@@ -751,7 +795,7 @@
       { label: sc.folded ? 'Déplier dans la barre' : 'Plier dans la barre', icon: sc.folded ? '▸' : '◂', action: () => toggleFoldScreen(sc) },
       { label: 'Couleur de l\'écran…', icon: `<span class="sc-dot" style="background:${screenColor(sc)}"></span>`, action: () => pickScreenColor(sc, crewEl.querySelector(`[data-screen-id="${sc.id}"]`) || crewEl) },
       { label: 'Ajouter un espace sur cet écran', icon: '＋', action: () => { switchScreen(sc.id); openKind(null, 'terminal'); } },
-      { label: 'Ajouter une zone depuis un modèle', icon: '🗂', submenu: TabModels.all('zone').map((z) => ({ label: z.name, icon: z.icon || '🗂', hint: TabModels.summary('zone', z), action: () => { switchScreen(sc.id); openZoneModel(z, null); } })).concat(TabModels.all('zone').length ? [] : [{ label: 'Aucun modèle de zone', disabled: true }]) },
+      { label: 'Ajouter une zone depuis un modèle', icon: '🗂', submenu: TabModels.all('zone').map((z) => ({ label: z.name, icon: TabModels.iconHtml(z.icon || '🗂'), hint: TabModels.summary('zone', z), action: () => { switchScreen(sc.id); openZoneModel(z, null); } })).concat(TabModels.all('zone').length ? [] : [{ label: 'Aucun modèle de zone', disabled: true }]) },
       TabModels.saveMenuItem('screen', () => snapshotScreen(sc)),
       { label: 'Nouvel écran depuis un modèle', icon: '▣', submenu: TabModels.screenMenuItems() },
       '-',
@@ -781,6 +825,7 @@
   function unparkSpace(space, dockTo) {
     ensureScreen(space);
     space.parked = false;
+    if (space.asleep) { space.asleep = false; space.wokeAt = Date.now(); applyBot(space); }
     if (maximized) maximized = null;
     if (dockTo) Layout.dock(space.id, dockTo.targetId, dockTo.side);
     else Layout.add(space.id, activeSpace?.id);
@@ -908,6 +953,24 @@
         screens.splice(screens.indexOf(sc) + (after ? 1 : 0), 0, moving);
         renderCrew();
         save();
+      });
+      // Lâcher un onglet dans la barre (hors d'un robot) : il part dans un nouvel espace sur cet écran
+      g.addEventListener('dragover', (e) => {
+        if (!dragTab || e.target.closest('.crew-item')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        Layout.clearZone();
+        g.classList.add('drop-new-space');
+      });
+      g.addEventListener('dragleave', (e) => { if (!g.contains(e.relatedTarget)) g.classList.remove('drop-new-space'); });
+      g.addEventListener('drop', (e) => {
+        g.classList.remove('drop-new-space');
+        if (!dragTab || e.target.closest('.crew-item')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const t = dragTab;
+        Layout.endDrag();
+        tabToNewSpace(t, sc.id);
       });
       // Lâcher un espace sur un autre écran l'y envoie
       g.addEventListener('dragover', (e) => {
@@ -1192,6 +1255,7 @@
       e.preventDefault();
       e.stopPropagation();
       Layout.clearZone();
+      el.closest('.screen-group')?.classList.remove('drop-new-space');
       el.classList.add('drop-tab');
     });
     el.addEventListener('dragleave', () => el.classList.remove('drop-tab'));
@@ -1665,7 +1729,7 @@
 
   // ---------- Icônes d'onglet (type ou modèle) ----------
   const KIND_TEXT = { terminal: '>_', explorer: '📁', editor: '✎', tests: '🧪', docker: '🐳', services: '🛰', prisma: '◆', graphify: '🕸' };
-  function tabIconText(tab) { return tab.icon || tab.model?.icon || KIND_TEXT[tab.kind] || '•'; }
+  function tabIconText(tab) { return TabModels.iconHtml(tab.icon || tab.model?.icon || KIND_TEXT[tab.kind] || '•'); }
   function tabIconHtml(tab) {
     if (tab.icon) return TabModels.iconHtml(tab.icon);
     if (tab.model?.icon) return TabModels.iconHtml(tab.model.icon);
@@ -1678,6 +1742,24 @@
     const box = space.crewTabs;
     if (!box) return;
     box.innerHTML = '';
+    if (space.tabs.length) {
+      const unread = space.tabs.some((t) => t.el.classList.contains('unread'));
+      const failing = space.tabs.some((t) => t.el.dataset.badge);
+      const n = space.tabs.length;
+      const badge = h('button', 'crew-tab crew-count' + (space.asleep ? '' : ' crew-count-alt') + (unread ? ' unread' : '') + (failing ? ' failing' : ''), String(n));
+      badge.title = space.asleep
+        ? I18n.t(n > 1 ? '{0} onglets (robot endormi : double-clic pour le réveiller)' : '{0} onglet (robot endormi : double-clic pour le réveiller)', n)
+        : I18n.t(n > 1 ? '{0} onglets' : '{0} onglet', n);
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTip();
+        UI.menu([{ title: space.name }, ...space.tabs.map((t) => ({ label: t.title, icon: tabIconText(t), checked: t === space.activeTab, action: () => revealTab(t) })),
+          ...(space.asleep ? ['-', { label: 'Réveiller le robot', icon: '💤', action: () => toggleSleep(space) }] : [])], badge);
+      });
+      badge.addEventListener('dblclick', (e) => e.stopPropagation());
+      box.appendChild(badge);
+    }
+    if (space.asleep) return;
     const MAX = 6;
     space.tabs.slice(0, MAX).forEach((t) => {
       const chip = h('button', 'crew-tab' + (t === space.activeTab ? ' active' : '') + (t.el.classList.contains('unread') ? ' unread' : '') + (t.el.dataset.badge ? ' failing' : ''), tabIconHtml(t));
@@ -1750,7 +1832,7 @@
     });
   }
   function clearTabDropMarks() {
-    document.querySelectorAll('.tab.drop-left, .tab.drop-right, .tabs.drop-end, .crew-item.drop-tab').forEach((x) => x.classList.remove('drop-left', 'drop-right', 'drop-end', 'drop-tab'));
+    document.querySelectorAll('.tab.drop-left, .tab.drop-right, .tabs.drop-end, .crew-item.drop-tab, .drop-new-space').forEach((x) => x.classList.remove('drop-left', 'drop-right', 'drop-end', 'drop-tab', 'drop-new-space'));
   }
   // Index d'insertion selon la position du pointeur dans la barre d'onglets
   function tabInsertIndex(space, x) {
@@ -1834,7 +1916,7 @@
     });
   }
 
-  // Change l'icône (emoji) d'un onglet ; « aucune » revient à l'icône par défaut (type ou modèle)
+  // « Aucune » revient à l'icône par défaut (type ou modèle).
   function changeTabIcon(tab, anchor) {
     const a = anchor?.isConnected ? anchor : tab.el.querySelector('.tab-icon') || tab.el;
     TabModels.pickIcon(a, (ic) => {
@@ -2257,6 +2339,30 @@
       document.body.appendChild(ov);
     });
   }
+  // Un onglet part dans un nouvel espace (sur l'écran donné, l'écran courant par défaut)
+  function tabToNewSpace(t, screenId) {
+    if (screenId && screenId !== activeScreenId) switchScreen(screenId);
+    if (maximized) maximized = null;
+    const s = createSpace();
+    placeSpace(s, t.space.screenId === activeScreenId && !t.space.parked ? t.space.id : undefined);
+    moveTab(t, s);
+    wave(s);
+  }
+  // Pendant le glisser d'un onglet, la barre des robots est mise en évidence (zone de dépôt)
+  crewEl.addEventListener('dragover', (e) => {
+    if (!dragTab || e.target.closest('.screen-group')) return;
+    e.preventDefault();
+    crewEl.classList.add('drop-new-space');
+  });
+  crewEl.addEventListener('dragleave', (e) => { if (!crewEl.contains(e.relatedTarget)) crewEl.classList.remove('drop-new-space'); });
+  crewEl.addEventListener('drop', (e) => {
+    crewEl.classList.remove('drop-new-space');
+    if (!dragTab || e.target.closest('.screen-group')) return;
+    e.preventDefault();
+    const t = dragTab;
+    Layout.endDrag();
+    tabToNewSpace(t);
+  });
   // Déposer un onglet sur « ＋ Espace » : il part dans un nouvel espace
   $('#btn-new-space').addEventListener('dragover', (e) => { if (dragTab) { e.preventDefault(); $('#btn-new-space').classList.add('drop-hot'); } });
   $('#btn-new-space').addEventListener('dragleave', () => $('#btn-new-space').classList.remove('drop-hot'));
@@ -2266,9 +2372,7 @@
     e.preventDefault();
     const t = dragTab;
     Layout.endDrag();
-    const s = createSpace();
-    placeSpace(s, t.space.id);
-    moveTab(t, s);
+    tabToNewSpace(t);
   });
   $('#btn-settings').addEventListener('click', () => Settings.open());
   $('#btn-help').addEventListener('click', () => $('#help').classList.remove('hidden'));
@@ -2279,6 +2383,8 @@
   // ---------- Paramètres ----------
   function applyRobotSettings() {
     document.body.classList.toggle('no-robot-anim', !Settings.data.robotAnimations);
+    document.body.dataset.crewStyle = Settings.data.crewStyle || 'classic';
+    document.body.dataset.toolAnim = Settings.data.toolAnim || 'tap';
   }
   Settings.onChange((changed) => {
     if (changed.includes('theme')) {
@@ -2288,7 +2394,9 @@
       renderWorkspace();
       Editor.applyTheme();
     }
-    if (changed.includes('robotAnimations')) applyRobotSettings();
+    if (changed.includes('robotAnimations') || changed.includes('crewStyle') || changed.includes('toolAnim')) applyRobotSettings();
+    if (changed.includes('robotBodyInZone')) spaces.forEach(applyBot);
+    if (changed.includes('crewStyle')) requestAnimationFrame(() => spaces.forEach((sp) => resizeTab(sp.activeTab)));
     if (changed.includes('language')) I18n.setLang(Settings.data.language);
     if (changed.includes('tabModels') || changed.includes('zoneModels')) spaces.forEach(fillEmpty);
     if (changed.some((k) => k.startsWith('editor') || k === 'fontFamily' || k === 'fontSize')) Editor.applySettings();
@@ -2350,7 +2458,7 @@
           activeScreenId = (screens[state.activeScreen] || screens[0]).id;
           screensReady = true;
         }
-        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, screenId: (screens[ss.screen || 0] || screens[0]).id });
+        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked || ss.asleep, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: (screens[ss.screen || 0] || screens[0]).id });
         for (const t of ss.tabs || []) {
           const { title, ...spec } = t;
           try { openTab(s, { kind: 'terminal', ...spec }, { title }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }

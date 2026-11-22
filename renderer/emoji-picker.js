@@ -1,5 +1,5 @@
 // RobotConsole — sélecteur d'emoji : recherche (français / anglais), catégories, récents
-// EmojiPicker.open(anchor, { onPick(icon|null), allowNone, suggestions: [icon…], render(icon) -> html })
+// EmojiPicker.open(anchor, { onPick(icon|null), allowNone, suggestions: [icon…], render(icon) -> html, tools })
 (function () {
   const { h, esc } = UI;
   const RECENT_KEY = 'robotconsole.emojiRecent';
@@ -112,9 +112,45 @@
     const grid = h('div', 'emj-grid');
     const foot = h('div', 'emj-foot', '<span class="emj-prev"></span><span class="emj-name muted">Survolez un emoji</span>');
     box.append(top, cats, grid, foot);
+    let toolMode = false, toolCat = '';
+    let firstResult = null;
+    const toolCats = h('div', 'emj-tool-cats hidden');
+    if (opts.tools) {
+      const modes = h('div', 'emj-modes');
+      const emojiBtn = h('button', 'tb-btn small active', 'Emojis');
+      const toolBtn = h('button', 'tb-btn small', 'Icônes');
+      const setMode = (tools) => {
+        toolMode = tools;
+        emojiBtn.classList.toggle('active', !tools);
+        toolBtn.classList.toggle('active', tools);
+        toolCats.classList.toggle('hidden', !tools);
+        search.placeholder = tools ? `Rechercher parmi ${ToolIcons.all.length} icônes (react, docker, claude…)` : 'Rechercher (fusée, chat, rocket…)';
+        foot.querySelector('.emj-prev').innerHTML = '';
+        foot.querySelector('.emj-name').textContent = tools ? 'Survolez une icône' : 'Survolez un emoji';
+        firstResult = null;
+        if (search.value.trim()) renderSearch(search.value); else renderAll();
+        search.focus();
+      };
+      emojiBtn.addEventListener('click', () => setMode(false));
+      toolBtn.addEventListener('click', () => setMode(true));
+      modes.append(emojiBtn, toolBtn);
+      box.prepend(modes);
+      box.insertBefore(toolCats, grid);
+      for (const c of [{ id: '', label: 'Tout' }, ...ToolIcons.cats]) {
+        const b = h('button', 'tb-btn small' + (!c.id ? ' active' : ''));
+        b.textContent = c.label;
+        b.addEventListener('click', () => {
+          toolCat = c.id;
+          for (const btn of toolCats.children) btn.classList.toggle('active', btn === b);
+          renderTools();
+          search.focus();
+        });
+        toolCats.appendChild(b);
+      }
+    }
 
     const sections = [];
-    const recent = loadRecent();
+    const recent = loadRecent().filter((ic) => opts.tools || !ic.startsWith('tool:'));
     if (recent.length) sections.push({ key: 'recent', label: 'Récents', icon: '🕘', items: recent });
     if (opts.suggestions?.length) sections.push({ key: 'sugg', label: 'Suggestions', icon: '⭐', items: opts.suggestions });
     data.groups.forEach(([key, label, icon], gi) => sections.push({ key, label, icon, items: data.emojis.filter((e) => e[2] === gi).map((e) => e[0]) }));
@@ -127,6 +163,7 @@
     function cell(icon) {
       const b = h('button', 'emj-cell', render(icon));
       b.dataset.icon = icon;
+      b.title = icon.startsWith('tool:') ? ToolIcons.label(icon.slice(5)) : nameOf.get(icon) || (icon === '>_' ? 'terminal' : icon);
       return b;
     }
     // Délégation : un seul écouteur pour toute la grille
@@ -135,11 +172,27 @@
       const b = e.target.closest('.emj-cell');
       if (!b) return;
       foot.querySelector('.emj-prev').innerHTML = render(b.dataset.icon);
-      foot.querySelector('.emj-name').textContent = nameOf.get(b.dataset.icon) || (b.dataset.icon === '>_' ? 'terminal' : b.dataset.icon);
+      foot.querySelector('.emj-name').textContent = b.title;
     });
 
     const catBtns = new Map();
+    function renderTools() {
+      const hits = ToolIcons.search(search.value, toolCat);
+      grid.innerHTML = '';
+      grid.scrollTop = 0;
+      cats.classList.add('hidden');
+      const sec = h('div', 'emj-sec');
+      sec.appendChild(h('div', 'emj-title', hits.length ? `${hits.length} résultat${hits.length > 1 ? 's' : ''}` : 'Aucune icône ne correspond.'));
+      const g = h('div', 'emj-cells');
+      const frag = document.createDocumentFragment();
+      for (const it of hits) frag.appendChild(cell(`tool:${it.id}`));
+      g.appendChild(frag);
+      sec.appendChild(g);
+      grid.appendChild(sec);
+      firstResult = search.value.trim() && hits.length ? `tool:${hits[0].id}` : null;
+    }
     function renderAll() {
+      if (toolMode) { renderTools(); return; }
       grid.innerHTML = '';
       cats.classList.remove('hidden');
       for (const s of sections) {
@@ -173,8 +226,8 @@
     }
     grid.addEventListener('scroll', syncCat);
 
-    let firstResult = null;
     function renderSearch(q) {
+      if (toolMode) { renderTools(); return; }
       const tokens = norm(q).split(/\s+/).filter(Boolean);
       const groups = tokens.map(termsFor);
       const hits = data.emojis.filter((e) => {

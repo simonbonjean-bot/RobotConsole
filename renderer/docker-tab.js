@@ -323,6 +323,7 @@
     d.term.loadAddon(d.fitAddon);
     d.term.open(body);
     d.termHost = body;
+    UI.termClipboard(d.term, body);
     new ResizeObserver(() => fitLogs(tab)).observe(body);
     requestAnimationFrame(() => fitLogs(tab));
     d.follow = true;

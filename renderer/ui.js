@@ -201,5 +201,34 @@
     return { sync, schedule, dispose() { size.disconnect(); layout.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('resize', schedule); view.remove(); } };
   }
 
-  window.UI = { h, esc, menu, closeMenus, dialog, prompt, confirm, toast, ansiToHtml, fmtBytes, fmtDuration, floatWebview };
+  // ---------- Copier / coller dans les consoles xterm des outils (services, Docker, tests) ----------
+  // Ctrl+C copie la sélection (sinon il part au programme comme d'habitude), Ctrl+Maj+C copie,
+  // Ctrl+V / Maj+Inser collent (consoles interactives) ; clic droit : Copier, Coller, Tout sélectionner, Effacer.
+  function termClipboard(term, host, { interactive = false, onClear } = {}) {
+    const copy = () => { if (!term.hasSelection()) return false; window.api.writeClipboard(term.getSelection()); return true; };
+    const paste = async () => { const text = await window.api.readClipboard(); if (text) { term.paste(text); term.focus(); } };
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      const k = e.key.toLowerCase();
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && k === 'c' && term.hasSelection()) { copy(); term.clearSelection(); return false; }
+      if (e.ctrlKey && e.shiftKey && !e.altKey && k === 'c') { copy(); return false; }
+      if (interactive && ((e.ctrlKey && !e.altKey && k === 'v') || (e.shiftKey && !e.ctrlKey && e.key === 'Insert'))) { e.preventDefault(); paste(); return false; }
+      if (!interactive && e.ctrlKey && !e.altKey && !e.shiftKey && k === 'a') { e.preventDefault(); term.selectAll(); return false; }
+      return true;
+    });
+    host.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sel = term.hasSelection();
+      menu([
+        { label: 'Copier', icon: '⧉', hint: 'Ctrl+C', disabled: !sel, action: () => { copy(); term.focus(); } },
+        interactive && { label: 'Coller', icon: '📋', hint: 'Ctrl+V', action: paste },
+        { label: 'Tout sélectionner', icon: '▤', hint: interactive ? '' : 'Ctrl+A', action: () => { term.selectAll(); term.focus(); } },
+        '-',
+        { label: "Effacer l'affichage", icon: '⌫', action: () => (onClear ? onClear() : term.clear()) },
+      ], e.clientX, e.clientY);
+    });
+  }
+
+  window.UI = { h, esc, menu, closeMenus, dialog, prompt, confirm, toast, ansiToHtml, fmtBytes, fmtDuration, floatWebview, termClipboard };
 })();

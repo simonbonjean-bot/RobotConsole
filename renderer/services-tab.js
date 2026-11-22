@@ -378,6 +378,7 @@
     s.term.loadAddon(s.fit);
     s.term.open(body);
     s.termHost = body;
+    UI.termClipboard(s.term, body, { interactive: true }); // copier / coller (Ctrl+C ne coupe plus le service s'il y a une sélection)
     new ResizeObserver(() => fitLogs(tab)).observe(body);
     const sid = st.sessionId;
     s.logSession = sid;

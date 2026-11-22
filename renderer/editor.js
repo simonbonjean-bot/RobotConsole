@@ -395,6 +395,20 @@
     mHost.addEventListener('wheel', onWheel, { capture: true, passive: false });
     mHost.addEventListener('keydown', onKey, true);
 
+    // Ctrl+F / Ctrl+H / Ctrl+G partout dans la zone de l'éditeur (barre, chemin, barre d'état…),
+    // pas seulement quand le texte a le focus
+    const zone = container.parentElement || container;
+    const onZoneKey = (e) => {
+      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      if (mHost.contains(e.target)) return; // dans Monaco (texte ou recherche) : Monaco s'en charge
+      const k = e.key.toLowerCase();
+      const id = k === 'f' ? 'actions.find' : k === 'h' ? 'editor.action.startFindReplaceAction' : k === 'g' ? 'editor.action.gotoLine' : null;
+      if (!id) return;
+      e.preventDefault(); e.stopPropagation();
+      run(id);
+    };
+    zone.addEventListener('keydown', onZoneKey);
+
     const ctl = {
       file, editor: ed,
       get dirty() { return isDirty(); },
@@ -503,6 +517,7 @@
         status.remove();
         bannerEl.remove();
         historyBtns.forEach((b) => b.remove());
+        zone.removeEventListener('keydown', onZoneKey);
         if (--entry.refs <= 0) {
           stopWatch(entry);
           entry.closed = true;

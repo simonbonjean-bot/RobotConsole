@@ -81,6 +81,7 @@
       t.fit = new FitAddon.FitAddon();
       t.term.loadAddon(t.fit);
       t.term.open(outBody);
+      UI.termClipboard(t.term, outBody);
       new ResizeObserver(() => fitOut(tab)).observe(outBody);
 
       t.treeEl.addEventListener('keydown', (e) => treeKey(tab, e));

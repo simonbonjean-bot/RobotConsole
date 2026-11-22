@@ -79,6 +79,17 @@
       ex.tree.style.width = `min(${ex.treeW}px, 45%)`;
       const split = h('div', 'ex-split');
       ex.preview = h('div', 'ex-preview');
+      ex.preview.tabIndex = -1; // un clic dans l'aperçu lui donne le focus (pour Ctrl+F)
+      // Ctrl+F / Ctrl+H dans l'aperçu d'un fichier : passe en édition avec la recherche ouverte
+      ex.preview.addEventListener('keydown', async (e) => {
+        if (!e.ctrlKey || e.altKey || e.shiftKey || ex.editor || !ex.selected || ex.selectedIsDir) return;
+        const k = e.key.toLowerCase();
+        if (k !== 'f' && k !== 'h') return;
+        if (!ex.preview.querySelector('.pv-head .pv-edit')) return; // fichier non modifiable (image, binaire…)
+        e.preventDefault(); e.stopPropagation();
+        await editFile(tab, ex.selected);
+        if (k === 'f') ex.editor?.find(); else ex.editor?.editor.getAction('editor.action.startFindReplaceAction')?.run();
+      });
       main.append(ex.tree, split, ex.preview);
       tab.pane.append(bar, main);
 
@@ -704,7 +715,7 @@
     }
     if (seg.childNodes.length) head.appendChild(seg);
     if (info?.kind === 'text' || (diff && code !== 'D')) {
-      const edit = CAI.h('button', 'tb-btn small', '✎ Modifier');
+      const edit = CAI.h('button', 'tb-btn small pv-edit', '✎ Modifier');
       edit.title = 'Modifier ce fichier (Entrée ou double-clic)';
       edit.addEventListener('click', () => editFile(tab, file));
       head.appendChild(edit);

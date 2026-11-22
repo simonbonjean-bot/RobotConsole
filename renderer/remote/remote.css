@@ -5,7 +5,7 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+body { display: flex; flex-direction: column; height: var(--app-height, 100dvh); overflow: hidden; }
 button { font: inherit; color: inherit; }
 
 header { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: var(--panel); border-bottom: 1px solid var(--border); flex: 0 0 auto; }
@@ -43,17 +43,17 @@ main { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch
 .pill.control { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 
 /* Terminal */
-.termwrap { display: flex; flex-direction: column; height: 100%; }
+.termwrap { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow: hidden; }
 .termbar { display: flex; gap: 6px; align-items: center; padding: 6px 10px; color: var(--muted); font-size: 12px; flex: 0 0 auto; }
 .termbar .sp { flex: 1; }
-.termscroll { flex: 1; min-height: 0; overflow: auto; background: #000; }
-.termscroll .xterm { padding: 4px; }
+.termscroll { flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; background: #000; overflow-anchor: none; }
+.termscroll .xterm { padding: 4px; width: max-content; min-width: 100%; font-variant-ligatures: none; }
 .keys { display: flex; gap: 6px; overflow-x: auto; padding: 6px 8px; background: var(--panel); border-top: 1px solid var(--border); flex: 0 0 auto; scrollbar-width: none; }
 .keys::-webkit-scrollbar { display: none; }
 .key { flex: 0 0 auto; min-width: 42px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; font: 13px ui-monospace, Consolas, monospace; cursor: pointer; user-select: none; }
 .key.on { border-color: var(--accent); color: var(--accent); }
 .inputbar { display: flex; gap: 6px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); flex: 0 0 auto; }
-.inputbar input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font: 15px ui-monospace, Consolas, monospace; }
+.inputbar input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font: 16px ui-monospace, Consolas, monospace; }
 .btn { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }

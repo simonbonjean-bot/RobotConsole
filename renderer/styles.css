@@ -69,6 +69,10 @@ button { font: inherit; color: inherit; }
 
 .space-head { display: flex; align-items: center; height: 40px; padding: 0 6px 0 4px; gap: 6px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
 .space-head .robot { width: 36px; height: 36px; flex: 0 0 36px; cursor: pointer; position: relative; }
+/* Robot en pied : la tête reste à sa place, le corps dépasse sur l'onglet courant (sans bloquer les clics) */
+.space-head { position: relative; z-index: 4; }
+.space-head .robot.with-body svg { position: absolute; left: 0; top: 0; width: auto; height: calc(36px * var(--body-h, 1)); pointer-events: none; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .35)); }
+.space-head .robot.with-body.has-tool svg { left: 0; }
 .space-name { font-weight: 600; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; padding: 2px 4px; border-radius: 4px; color: var(--space-accent); }
 .space-name[contenteditable="true"] { outline: 1px solid var(--space-accent); background: var(--bg); user-select: text; text-overflow: clip; }
 

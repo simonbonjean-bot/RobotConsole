@@ -1,0 +1,117 @@
+/* RobotConsole — styles de la barre des robots (Réglages → Barre des robots)
+   Le style choisi est posé sur <body data-crew-style="…"> ; « classic » = le style de base (ui2.css, screens.css). */
+.crew-info { display: contents; }
+.crew-name { display: none; }
+#crew .crew-tab.crew-count-alt { display: none; }
+
+/* Glisser un onglet : la barre des robots est une zone de dépôt
+   (sur un robot : l'onglet part dans son espace ; ailleurs : nouveau robot) */
+body.dragging-tab #crew { outline: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; border-radius: 12px; }
+#crew.drop-new-space,
+#crew .screen-group.drop-new-space { outline: 2px dashed var(--accent); outline-offset: 2px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+#crew .screen-group.drop-new-space .screen-add-zone { opacity: 1; border-style: solid; color: var(--text); background: color-mix(in srgb, var(--accent) 35%, transparent); }
+#crew .crew-item.drop-tab { transform: scale(1.06); transition: transform .12s; }
+
+/* ---- Compacte : barre fine, petits robots ---- */
+body[data-crew-style="compact"] #topbar { height: 44px; }
+body[data-crew-style="compact"] #spaces { inset: 44px 0 0 0 !important; }
+body[data-crew-style="compact"] #crew .crew-bot { width: 30px; height: 30px; }
+body[data-crew-style="compact"] #crew .crew-bot.has-tool { width: 56px; }
+body[data-crew-style="compact"] #crew .crew-tab { height: 24px; min-width: 24px; padding: 0 2px; font-size: 14px; }
+body[data-crew-style="compact"] #crew .crew-tab .tm-ico,
+body[data-crew-style="compact"] #crew .crew-tab .kind-docker { font-size: 14px; }
+body[data-crew-style="compact"] #crew .crew-tab .kind-term { font-size: 10px; }
+body[data-crew-style="compact"] #crew .crew-tab .kind-dir svg { width: 13px; height: 13px; }
+body[data-crew-style="compact"] #crew .crew-zone-icon,
+body[data-crew-style="compact"] #crew .crew-zone-icon .tm-ico { font-size: 14px; }
+body[data-crew-style="compact"] #crew .screen-group { padding-top: 1px; padding-bottom: 1px; border-radius: 9px; }
+body[data-crew-style="compact"] #crew .crew-item { border-radius: 8px; }
+body[data-crew-style="compact"] #crew .screen-label { height: 20px; line-height: 20px; font-size: 10px; }
+
+/* ---- Dock : grands robots seuls, badge du nombre d'onglets, grossissement au survol ---- */
+body[data-crew-style="dock"] #topbar { height: 68px; }
+body[data-crew-style="dock"] #spaces { inset: 68px 0 0 0 !important; }
+body[data-crew-style="dock"] #crew .crew-item { border-color: transparent; background: transparent; position: relative; gap: 0; padding: 0 2px 6px; }
+body[data-crew-style="dock"] #crew .crew-tab:not(.crew-count) { display: none; }
+body[data-crew-style="dock"] #crew .crew-tab.crew-count-alt { display: inline-flex; }
+body[data-crew-style="dock"] #crew .crew-tabs { position: absolute; right: -4px; top: -2px; z-index: 1; }
+body[data-crew-style="dock"] #crew .crew-tab.crew-count { min-width: 17px; height: 17px; padding: 0 4px; font-size: 9.5px; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); }
+body[data-crew-style="dock"] #crew .crew-zone-icon { position: absolute; left: -2px; bottom: 2px; font-size: 14px; z-index: 1; }
+body[data-crew-style="dock"] #crew .crew-zone-icon .tm-ico { font-size: 14px; }
+body[data-crew-style="dock"] #crew .crew-bot { width: 50px; height: 50px; transition: transform .16s cubic-bezier(.3, 1.6, .5, 1); transform-origin: center bottom; }
+body[data-crew-style="dock"] #crew .crew-bot.has-tool { width: 92px; }
+body[data-crew-style="dock"] #crew .crew-item:hover .crew-bot { transform: scale(1.14) translateY(-2px); background: transparent; }
+body[data-crew-style="dock"] #crew .crew-item.active::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--space-accent); box-shadow: 0 0 6px var(--space-glow); }
+body[data-crew-style="dock"] #crew .crew-item.asleep .crew-bot { transform: scale(.82); }
+body[data-crew-style="dock"] #crew .crew-item.asleep { border-style: none; }
+body[data-crew-style="dock"] #crew .crew-bot,
+body[data-crew-style="dock"] #crew .crew-bot.active,
+body[data-crew-style="flat"] #crew .crew-bot,
+body[data-crew-style="flat"] #crew .crew-bot.active { border-color: transparent; background: transparent; }
+
+/* ---- Étiquettes : robot, nom de l'espace et onglets en dessous ---- */
+body[data-crew-style="labels"] #crew .crew-info { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding-right: 3px; }
+body[data-crew-style="labels"] #crew .crew-name { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11.5px/1.25 system-ui, sans-serif; color: var(--space-accent); }
+body[data-crew-style="labels"] #crew .crew-item:not(.active) .crew-name { color: color-mix(in srgb, var(--space-accent) 65%, var(--muted)); }
+body[data-crew-style="labels"] #crew .crew-tab { height: 22px; min-width: 22px; padding: 0 2px; font-size: 13px; }
+body[data-crew-style="labels"] #crew .crew-tab .tm-ico,
+body[data-crew-style="labels"] #crew .crew-tab .kind-docker { font-size: 13px; }
+body[data-crew-style="labels"] #crew .crew-tab .kind-term { font-size: 9.5px; }
+body[data-crew-style="labels"] #crew .crew-tab .kind-dir svg { width: 13px; height: 13px; }
+body[data-crew-style="labels"] #crew .crew-tab.crew-count { height: 16px; min-width: 16px; font-size: 9.5px; }
+body[data-crew-style="labels"] #crew .crew-bot { width: 42px; height: 42px; }
+body[data-crew-style="labels"] #crew .crew-bot.has-tool { width: 78px; }
+body[data-crew-style="labels"] #crew .crew-item { padding-right: 6px; }
+
+/* ---- Épurée : sans cadres, le robot actif est souligné ---- */
+body[data-crew-style="flat"] #crew .screen-group,
+body[data-crew-style="flat"] #crew .screen-group.current { border-color: transparent; background: transparent; box-shadow: none; }
+body[data-crew-style="flat"] #crew .screen-group:not(.current) { opacity: .55; }
+body[data-crew-style="flat"] #crew .crew-item { border-color: transparent; background: transparent; border-radius: 0; position: relative; }
+body[data-crew-style="flat"] #crew .crew-item::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -3px; height: 3px; border-radius: 3px; background: var(--space-accent); opacity: 0; transform: scaleX(.4); transition: opacity .15s, transform .2s; }
+body[data-crew-style="flat"] #crew .crew-item:hover::after { opacity: .35; transform: scaleX(.8); }
+body[data-crew-style="flat"] #crew .crew-item.active::after { opacity: 1; transform: none; box-shadow: 0 0 8px var(--space-glow); }
+body[data-crew-style="flat"] #crew .crew-tab.active { background: transparent; border-color: transparent; color: var(--space-accent); }
+body[data-crew-style="flat"] #crew .crew-item.asleep { border-style: none; }
+
+/* ---- Réglages : cartes de choix avec une maquette de chaque style ---- */
+.crew-style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.crew-style-card { background: transparent; border: 2px solid transparent; border-radius: 11px; padding: 4px; cursor: pointer; text-align: left; color: var(--text); }
+.crew-style-card:hover { border-color: var(--border); }
+.crew-style-card.active { border-color: var(--accent); }
+.crew-style-card .cs-hint { display: block; padding: 0 2px 2px; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.cs-prev { height: 52px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 6px; overflow: hidden; }
+.cs-item { display: inline-flex; align-items: center; gap: 2px; padding: 2px 3px; border-radius: 6px; border: 1px solid var(--border); position: relative; }
+.cs-item.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cs-bot { display: inline-block; width: 16px; height: 16px; border-radius: 5px; background: var(--c); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .25); }
+.cs-tabs { display: inline-flex; gap: 2px; }
+.cs-tab { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: var(--muted); opacity: .7; }
+.cs-name, .cs-count { display: none; }
+.cs-count { font: 700 8px/12px system-ui; min-width: 12px; height: 12px; border-radius: 6px; text-align: center; background: var(--panel-2); color: var(--text); font-style: normal; }
+.cs-compact { gap: 4px; }
+.cs-compact .cs-bot { width: 11px; height: 11px; border-radius: 3px; }
+.cs-compact .cs-tab { width: 5px; height: 5px; }
+.cs-compact .cs-item { padding: 1px 2px; }
+.cs-dock .cs-item { border-color: transparent; background: transparent; padding-bottom: 5px; }
+.cs-dock .cs-item.on { background: transparent; }
+.cs-dock .cs-bot { width: 22px; height: 22px; border-radius: 7px; }
+.cs-dock .cs-tabs { display: none; }
+.cs-dock .cs-count { display: block; position: absolute; top: -4px; right: -5px; }
+.cs-dock .cs-item.on::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+.cs-labels .cs-item { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 3px; align-items: center; }
+.cs-labels .cs-bot { grid-row: 1 / 3; }
+.cs-labels .cs-name { display: block; font: 600 8px/1.1 system-ui; color: var(--accent); }
+.cs-labels .cs-tab { width: 5px; height: 5px; }
+.cs-flat .cs-item,
+.cs-flat .cs-item.on { border-color: transparent; background: transparent; border-radius: 0; }
+.cs-flat .cs-item.on { box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* ---- Réglages : aperçus des animations de l'icône « Travaille sur » ---- */
+.set-row.set-row-block { flex-direction: column; align-items: stretch; gap: 8px; }
+.tool-anim-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.tool-anim-card { background: var(--bg); border: 2px solid var(--border); border-radius: 10px; padding: 6px 4px 2px; cursor: pointer; color: var(--text); text-align: center; }
+.tool-anim-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tool-anim-card.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+.tool-anim-card .robot { height: 54px; display: flex; justify-content: center; }
+.tool-anim-card .robot svg { width: auto; height: 100%; }
+.tool-anim-card .theme-name { padding: 4px 0 2px; font-size: 11.5px; }
