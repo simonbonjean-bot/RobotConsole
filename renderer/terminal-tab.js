@@ -83,7 +83,7 @@
         if (tab.exited) { if (d === '\r') start(tab); return; }
         api.write(tab.ptyId, d);
       });
-      term.onResize(({ cols, rows }) => { if (!tab.exited && tab.ptyId) api.resize(tab.ptyId, cols, rows); });
+      term.onResize(({ cols, rows }) => { if (!tab.exited && tab.ptyId && !tab.replaying) api.resize(tab.ptyId, cols, rows); });
       term.onTitleChange((t) => {
         const short = (t.split(/[\\/]/).filter(Boolean).pop() || t).replace(/\.exe$/i, '');
         CAI.setAutoTitle(tab, short, t);
@@ -252,24 +252,47 @@
   }
 
   // Reprend une session qui tourne toujours dans le service en arrière-plan
+  // Rejoue la sortie conservée morceau par morceau, chacun à la taille où il a été produit
+  // (sinon les lignes se coupent ailleurs et Claude Code / vim s'affichent en vrac)
+  function replaySegs(term, segs, data, done) {
+    if (!segs?.length) { term.write(data || '', done); return; }
+    let i = 0;
+    const next = () => {
+      if (i >= segs.length) return done?.();
+      const g = segs[i++];
+      if (g.cols && g.rows && (g.cols !== term.cols || g.rows !== term.rows)) term.resize(g.cols, g.rows);
+      term.write(g.data || '', next);
+    };
+    next();
+  }
+
   async function attach(tab, sessionId) {
     tab.ptyId = sessionId;
     tabsByPty.set(sessionId, tab);
     tab.queue = [];
     let res = null;
     try { res = await api.attachPty({ id: sessionId, cols: tab.term.cols, rows: tab.term.rows }); } catch {}
-    const queued = tab.queue;
-    tab.queue = null;
     if (!res?.found) {
+      tab.queue = null;
       // La session n'existe plus (redémarrage du PC…) : on relance un shell neuf
       tabsByPty.delete(sessionId);
       tab.ptyId = null;
       start(tab);
       return;
     }
-    if (res.data) tab.term.write(res.data);
-    queued.forEach((d) => tab.term.write(d));
-    if (!res.alive) markExited(tab, res.exitCode, true);
+    // Ce qui est arrivé avant la réponse fait déjà partie du rejeu ; on garde la suite pour après
+    tab.queue = [];
+    tab.replaying = true;
+    const { cols, rows } = tab.term;
+    replaySegs(tab.term, res.segs, res.data, () => {
+      if (tab.term.cols !== cols || tab.term.rows !== rows) tab.term.resize(cols, rows);
+      tab.replaying = false;
+      if (res.alive && tab.ptyId) api.resize(tab.ptyId, tab.term.cols, tab.term.rows);
+      const queued = tab.queue || [];
+      tab.queue = null;
+      queued.forEach((d) => tab.term.write(d));
+      if (!res.alive) markExited(tab, res.exitCode, true);
+    });
   }
 
   function markExited(tab, code, quiet) {

@@ -204,6 +204,14 @@ ptyHost.onExit = (id, code) => {
 };
 
 ptyHost.onResize = (id, cols, rows) => remote.onResize(id, cols, rows);
+// Garde l'ordre sortie → redimensionnement / rattachement (sinon sortie en double ou coupée à la mauvaise largeur)
+ptyHost.onFlush = (id) => {
+  const pending = outBuf.get(id);
+  if (!pending) return;
+  outBuf.delete(id);
+  sendTo(id, 'pty:data', pending);
+  remote.onData(id, pending);
+};
 
 // ---------- Accès à distance (téléphone / tablette) ----------
 const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null });

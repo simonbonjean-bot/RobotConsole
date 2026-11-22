@@ -33,7 +33,7 @@ function create(m) {
     send({ t: 'exit', id: m.id, code: -1, error: String(err.message || err) });
     return;
   }
-  const s = { p, buf: '', alive: true, exitCode: null, shellId: m.shellId, scope: m.scope || '', pid: p.pid, started: Date.now(), ended: null };
+  const s = { p, segs: [{ cols: p.cols, rows: p.rows, data: '' }], size: 0, alive: true, exitCode: null, shellId: m.shellId, scope: m.scope || '', pid: p.pid, started: Date.now(), ended: null };
   sessions.set(m.id, s);
 
   // Commandes de démarrage (modèles d'espace) : envoyées une par une, chaque fois que
@@ -46,21 +46,43 @@ function create(m) {
     initTimer = setTimeout(() => { if (s.alive && pendingInit.length) p.write(pendingInit.shift() + '\r'); }, delay);
   };
   let outTimer = null, out = '';
+  // Envoie tout de suite la sortie en attente (avant un redimensionnement, un rattachement, la fin)
+  s.flush = () => { if (outTimer) { clearTimeout(outTimer); outTimer = null; } if (out) { send({ t: 'data', id: m.id, data: out }); out = ''; } };
   p.onData((d) => {
-    s.buf += d;
-    if (s.buf.length > MAX_BUFFER) s.buf = s.buf.slice(s.buf.length - MAX_BUFFER);
+    record(s, d);
     out += d;
-    if (!outTimer) outTimer = setTimeout(() => { outTimer = null; send({ t: 'data', id: m.id, data: out }); out = ''; }, 8);
+    if (!outTimer) outTimer = setTimeout(s.flush, 8);
     armInit(400);
   });
   p.onExit(({ exitCode }) => {
-    if (outTimer) { clearTimeout(outTimer); outTimer = null; send({ t: 'data', id: m.id, data: out }); out = ''; }
+    s.flush();
     s.alive = false;
     s.ended = Date.now();
     s.exitCode = exitCode;
     send({ t: 'exit', id: m.id, code: exitCode });
     scheduleIdleExit();
   });
+}
+
+// Sortie conservée par morceaux, chacun avec la taille du terminal au moment où il a été produit :
+// le rejeu redimensionne aux mêmes moments, sinon les lignes se coupent ailleurs et les programmes
+// qui redessinent en remontant le curseur (Claude Code, vim…) s'affichent en vrac.
+function record(s, d) {
+  s.segs[s.segs.length - 1].data += d;
+  s.size += d.length;
+  while (s.size > MAX_BUFFER && s.segs.length > 1) { s.size -= s.segs[0].data.length; s.segs.shift(); }
+  if (s.size > MAX_BUFFER) { const g = s.segs[0], cut = s.size - MAX_BUFFER; g.data = g.data.slice(cut); s.size -= cut; }
+}
+function resize(id, s, cols, rows) {
+  if (!s.alive) return;
+  s.flush(); // la sortie produite à l'ancienne taille part avant « resized »
+  try { s.p.resize(Math.max(2, cols | 0), Math.max(2, rows | 0)); } catch { return; }
+  const last = s.segs[s.segs.length - 1];
+  if (last.cols !== s.p.cols || last.rows !== s.p.rows) {
+    if (!last.data) { last.cols = s.p.cols; last.rows = s.p.rows; }
+    else s.segs.push({ cols: s.p.cols, rows: s.p.rows, data: '' });
+  }
+  send({ t: 'resized', id, cols: s.p.cols, rows: s.p.rows });
 }
 
 function kill(id) {
@@ -81,12 +103,14 @@ function handle(m) {
     case 'attach':
       if (!s) send({ t: 'attached', id: m.id, found: false });
       else {
-        if (s.alive && m.cols && m.rows) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); send({ t: 'resized', id: m.id, cols: s.p.cols, rows: s.p.rows }); } catch {} }
-        send({ t: 'attached', id: m.id, found: true, data: s.buf, alive: s.alive, exitCode: s.exitCode, shellId: s.shellId, cols: s.p.cols, rows: s.p.rows });
+        s.flush?.(); // tout ce qui est parti avant « attached » fait partie du rejeu
+        if (m.cols && m.rows) resize(m.id, s, m.cols, m.rows);
+        const segs = s.segs.filter((g, i) => g.data || i === s.segs.length - 1);
+        send({ t: 'attached', id: m.id, found: true, data: segs.map((g) => g.data).join(''), segs, alive: s.alive, exitCode: s.exitCode, shellId: s.shellId, cols: s.p.cols, rows: s.p.rows });
       }
       break;
     case 'write': if (s?.alive) s.p.write(m.data); break;
-    case 'resize': if (s?.alive) { try { s.p.resize(Math.max(2, m.cols), Math.max(2, m.rows)); send({ t: 'resized', id: m.id, cols: s.p.cols, rows: s.p.rows }); } catch {} } break;
+    case 'resize': if (s) resize(m.id, s, m.cols, m.rows); break;
     case 'kill': kill(m.id); break;
     case 'gc': {
       // Ne touche qu'aux sessions de la même portée (une fenêtre / un workspace)
