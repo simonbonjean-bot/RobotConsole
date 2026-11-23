@@ -121,10 +121,16 @@ app.whenReady().then(async () => {
         return JSON.stringify({ cursorX: b.cursorX, cursorY: b.cursorY, baseY: b.baseY, type: b.type,
           lines: Array.from({ length: b.length }, (_, i) => ({ text: b.getLine(i).translateToString(), wrapped: b.getLine(i).isWrapped })) });
       };
+      const historyReply = (entries, nextCursor = null) => {
+        const request = window.__sent.findLast((m) => m.t === 'speechHistory');
+        assert(request, 'History response requires a pending request');
+        receive({ t: 'actionResult', req: request.req, result: { entries, nextCursor } });
+      };
       receive({ t: 'robots', robots: [{
         key: 'robot', wcId: 1, name: 'Mobile', mode: 'control',
         tabs: [{ id: 'shell', title: 'Shell', kind: 'terminal', sessionId: 'pty', active: true }]
       }] });
+      historyReply([]);
       const terminal = window.__terminal;
       window.__sent = [];
       const old = '\\x1b[2J\\x1b[H' + 'x'.repeat(79) + 'OLD\\x1b[6n\\x1b[c';
@@ -240,10 +246,6 @@ app.whenReady().then(async () => {
       await reply();
       assert(!terminal.options.disableStdin && buffer(terminal) === buffer(desktop), 'Resynchronization recovers from snapshot errors');
 
-      const historyReply = (entries, nextCursor = null) => {
-        const req = window.__sent.findLast((m) => m.t === 'speechHistory').req;
-        receive({ t: 'actionResult', req, result: { entries, nextCursor } });
-      };
       const speechEntry = (text, id = 'message') => ({ id, at: new Date().toISOString(), source: 'cli', text });
       document.querySelector('.speech-details > button').click();
       historyReply([speechEntry('Older activity')]);

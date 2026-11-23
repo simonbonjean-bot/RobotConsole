@@ -17,13 +17,14 @@ const PtyClient = require('../main/ptyclient');
   let diagnostics = '';
   host.stderr.on('data', (data) => { diagnostics += data; });
   let socket;
+  let output = '';
   const waiters = [];
   const messages = [];
-  const wait = (predicate) => {
+  const wait = (label, predicate) => {
     const found = messages.find(predicate);
     if (found) return Promise.resolve(found);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('PTY timeout: ' + diagnostics)), 15000);
+      const timer = setTimeout(() => reject(new Error(`PTY timeout (${label}): ${diagnostics}\nOutput: ${JSON.stringify(output.slice(-4000))}\nMessages: ${JSON.stringify(messages.slice(-5))}`)), 15000);
       waiters.push((message) => { if (predicate(message)) { clearTimeout(timer); resolve(message); return true; } return false; });
     });
   };
@@ -49,6 +50,7 @@ const PtyClient = require('../main/ptyclient');
         const message = JSON.parse(buffer.slice(0, end));
         buffer = buffer.slice(end + 1);
         messages.push(message);
+        if (message.t === 'data') output += message.data;
         for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i](message)) waiters.splice(i, 1);
       }
     });
@@ -57,33 +59,37 @@ const PtyClient = require('../main/ptyclient');
   try {
     await connect();
     const win = process.platform === 'win32';
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env.PATH = [path.join(__dirname, '..', 'bin'), process.env.PATH || ''].join(path.delimiter);
+    env.TERM = 'xterm-256color';
     send({
       t: 'create', id: 'test', scope: 'test', shellId: 'default',
       file: win ? process.env.ComSpec || 'cmd.exe' : '/bin/sh', args: win ? ['/d', '/q'] : ['-i'],
       cols: 80, rows: 24, cwd: root,
-      env: { ...process.env, PATH: [path.join(__dirname, '..', 'bin'), process.env.PATH || ''].join(path.delimiter), TERM: 'xterm-256color' },
+      env,
       init: ['echo RC_PTY_OK', 'robot-say --help'],
     });
-    await wait((m) => m.t === 'data' && m.data.includes('RC_PTY_OK'));
-    await wait((m) => m.t === 'data' && m.data.includes('--history'));
+    await wait('startup command', () => output.includes('RC_PTY_OK'));
+    await wait('robot-say help', () => output.includes('--history'));
     const probe = net.connect(client.pipe);
     await once(probe, 'connect');
     probe.destroy();
     await once(probe, 'close');
     send({ t: 'resize', id: 'test', cols: 100, rows: 30 });
-    await wait((m) => m.t === 'resized' && m.cols === 100 && m.rows === 30);
+    await wait('resize', (m) => m.t === 'resized' && m.cols === 100 && m.rows === 30);
     socket.destroy();
     await connect();
     send({ t: 'hello' });
-    const sessions = await wait((m) => m.t === 'sessions');
+    const sessions = await wait('sessions', (m) => m.t === 'sessions');
     assert.equal(sessions.list[0].alive, true);
     send({ t: 'attach', id: 'test' });
-    const attached = await wait((m) => m.t === 'attached');
+    const attached = await wait('attach', (m) => m.t === 'attached');
     assert.equal(attached.found, true);
     assert.ok(attached.data.includes('RC_PTY_OK'));
     assert.equal(attached.cols, 100);
     send({ t: 'kill', id: 'test' });
-    await wait((m) => m.t === 'exit');
+    await wait('exit', (m) => m.t === 'exit');
     console.log('PTY: shell, robot-say, resize, reconnection, replay and shutdown passed.');
   } finally {
     if (socket && !socket.destroyed) send({ t: 'shutdown' });
