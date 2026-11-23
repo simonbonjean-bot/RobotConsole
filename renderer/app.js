@@ -1845,10 +1845,13 @@
     const close = h('button', 'close', '✕');
     close.title = "Fermer l'onglet (Ctrl+Maj+W)";
     tabEl.append(icon, title, dot, close);
-    tabEl.addEventListener('mousedown', (e) => { if (e.button === 0) activateTab(tab, true); });
-    tabEl.addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(tab); });
+    tabEl.addEventListener('mousedown', (e) => {
+      if (e.button === 1) e.preventDefault();
+      if (e.button === 0) activateTab(tab, true);
+    });
+    tabEl.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab); } });
     tabEl.addEventListener('contextmenu', (e) => { e.preventDefault(); UI.menu(tabMenuItems(tab, icon), e.clientX, e.clientY); });
-    close.addEventListener('mousedown', (e) => e.stopPropagation());
+    close.addEventListener('mousedown', (e) => { if (e.button === 0) e.stopPropagation(); });
     close.addEventListener('click', () => closeTab(tab));
     title.addEventListener('dblclick', () => renameTab(tab));
     makeTabDraggable(tab, tabEl);
@@ -1914,6 +1917,8 @@
         revealTab(t);
       });
       chip.addEventListener('dblclick', (e) => e.stopPropagation());
+      chip.addEventListener('mousedown', (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } });
+      chip.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); hideTip(); closeTab(t); } });
       chip.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); hideTip(); UI.menu(tabMenuItems(t, chip), e.clientX, e.clientY); });
       chip.addEventListener('mouseenter', () => showTabTip(chip, t));
       chip.addEventListener('mouseleave', hideTip);
