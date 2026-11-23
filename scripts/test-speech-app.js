@@ -29,12 +29,30 @@ if (!process.versions.electron) {
 
 if (!process.env.RC_SPEECH_APP_TEST) throw new Error('Run with node scripts\\test-speech-app.js');
 const { app, BrowserWindow } = require('electron');
+const testHome = path.join(process.env.ROBOTCONSOLE_USERDATA, 'skill-home');
+const testProject = path.join(process.env.ROBOTCONSOLE_USERDATA, 'skill-project');
+fs.mkdirSync(testHome);
+fs.mkdirSync(testProject);
+os.homedir = () => testHome;
 const PtyClient = require('../main/ptyclient');
 const sent = [];
 // Aucun shell ni hôte détaché n'est lancé par ce test d'intégration IPC.
 PtyClient.prototype.send = async function (message) { sent.push(message); };
 const { request } = require('../bin/robot-say.js');
 const { pipeFor } = require('../main/speech');
+const voices = [];
+const selectedVoices = [];
+require('../main/speech-voice').SpeechVoice.prototype.listVoices = async function () {
+  return { supported: true, voices: [
+    { id: 'Test French', name: 'Test French', language: 'fr-FR' },
+    { id: 'Test English', name: 'Test English', language: 'en-US' },
+  ] };
+};
+require('../main/speech-voice').SpeechVoice.prototype.speak = async function (text, volume, allowed, voiceName) {
+  if (!allowed()) return { cancelled: true };
+  voices.push(text);
+  selectedVoices.push(voiceName);
+};
 app.disableHardwareAcceleration();
 require('../main');
 
@@ -149,7 +167,98 @@ app.whenReady().then(async () => {
     assert.equal(await waitForEmpty(), true, 'Deleting all messages empties the panel');
     assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.robot-picker').classList.contains('hidden')`), false, 'Confirmation keeps the robot menu open');
     assert.equal((await request(pipe, { action: 'history', robot: 'robotone' })).length, 0);
+    await win.webContents.executeJavaScript(`Settings.open('robot-skill'); void 0;`);
+    const waitForSkillButtons = async () => win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        if (!document.querySelector('#set-robot-skill .skill-actions button').disabled) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return false;
+    })()`);
+    assert.equal(await waitForSkillButtons(), true);
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('#set-robot-skill .skill-actions button')[1].disabled`), true, 'Workspace install is disabled when no workspace is open');
+    const skillState = await win.webContents.executeJavaScript(`api.skillStatus()`);
+    assert.ok(skillState.user.every((file) => file.path.startsWith(testHome)), 'The test never installs into the real home directory');
+    await win.webContents.executeJavaScript(`document.querySelector('#set-robot-skill .skill-actions button').click(); void 0;`);
+    assert.equal(await waitForSkillButtons(), true);
+    const source = fs.readFileSync(path.join(__dirname, '..', 'skills', 'robot-say', 'SKILL.md'));
+    const installedFiles = ['.claude', '.agents'].map((folder) => path.join(testHome, folder, 'skills', 'robot-say', 'SKILL.md'));
+    for (const file of installedFiles) assert.ok(fs.readFileSync(file).equals(source));
+    fs.writeFileSync(installedFiles[0], 'User customization');
+    const waitForSkillConfirmation = async () => win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100; i++) {
+        if (document.querySelector('.dlg-actions .danger-btn')) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return false;
+    })()`);
+    await win.webContents.executeJavaScript(`document.querySelector('#set-robot-skill .skill-actions button').click(); void 0;`);
+    assert.equal(await waitForSkillConfirmation(), true);
+    await win.webContents.executeJavaScript(`document.querySelector('.dlg-actions .tb-btn').click(); void 0;`);
+    assert.equal(await waitForSkillButtons(), true);
+    assert.equal(fs.readFileSync(installedFiles[0], 'utf8'), 'User customization', 'Cancelling replacement preserves custom instructions');
+    await win.webContents.executeJavaScript(`document.querySelector('#set-robot-skill .skill-actions button').click(); void 0;`);
+    assert.equal(await waitForSkillConfirmation(), true);
+    await win.webContents.executeJavaScript(`document.querySelector('.dlg-actions .danger-btn').click(); void 0;`);
+    assert.equal(await waitForSkillButtons(), true);
+    assert.ok(fs.readFileSync(installedFiles[0]).equals(source), 'Confirmed replacement updates the skill');
+    require('electron').dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [testProject] });
+    await win.webContents.executeJavaScript(`document.querySelectorAll('#set-robot-skill .skill-actions button')[2].click(); void 0;`);
+    assert.equal(await waitForSkillButtons(), true);
+    for (const folder of ['.claude', '.agents']) {
+      assert.ok(fs.readFileSync(path.join(testProject, folder, 'skills', 'robot-say', 'SKILL.md')).equals(source), 'Folder selection installs without requiring an npm script in the project');
+    }
+    await win.webContents.executeJavaScript(`Settings.close(); Settings.set({ robotVoice: true }); CAI.spaces[0].robotEl.click(); document.querySelector('.rp-voice-button').click(); void 0;`);
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.rp-voice-consent').checked`), false, 'Robots require individual consent even when global voice is enabled');
+    const selected = await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      const select = document.querySelector('.rp-voice-select');
+      const values = [...select.options].map((option) => option.value);
+      select.value = 'Test French';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { values, consent: CAI.spaces[0].voice };
+    })()`);
+    assert.deepEqual(selected.values, ['', 'Test French', 'Test English'], 'The menu lists system voices and a default choice');
+    assert.equal(selected.consent, false, 'Selecting a voice never grants permission to speak');
+    if (process.platform === 'win32') {
+      const opened = [];
+      require('electron').shell.openExternal = async (url) => { opened.push(url); };
+      await win.webContents.executeJavaScript(`document.querySelector('.rp-add-voices').click(); void 0;`);
+      assert.deepEqual(opened, ['ms-settings:speech'], 'The add-voices link opens the fixed Windows speech settings page');
+    }
+    await win.webContents.executeJavaScript(`document.querySelector('.rp-refresh-voices').click(); void 0;`);
+    const refreshedVoice = await win.webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      return document.querySelector('.rp-voice-select').value;
+    })()`);
+    assert.equal(refreshedVoice, 'Test French', 'Refreshing voices preserves the robot selection');
+    await assert.rejects(win.webContents.executeJavaScript(`api.speechVoice('Not approved', 0, 'robotone')`), /non autorisée/);
+    await win.webContents.executeJavaScript(`document.querySelector('.rp-voice-consent').click(); void 0;`);
+    await request(pipe, { action: 'say', robot: 'robotone', text: 'Approved speech' });
+    assert.ok(voices.includes('Approved speech'));
+    assert.equal(selectedVoices.at(-1), 'Test French', 'The chosen robot voice reaches the speech engine');
+    await request(pipe, { action: 'say', robot: 'robottwo', text: 'Other robot stays silent' });
+    assert.ok(!voices.includes('Other robot stays silent'));
+    await win.webContents.executeJavaScript(`Settings.set({ robotVoice: false }); void 0;`);
+    await request(pipe, { action: 'say', robot: 'robotone', text: 'Globally disabled' });
+    assert.ok(!voices.includes('Globally disabled'));
+    const savedVoice = await win.webContents.executeJavaScript(`(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return (await api.loadState()).spaces.map((space) => ({ allowed: space.voice === true, name: space.voiceName || '' }));
+    })()`);
+    assert.deepEqual(savedVoice, [{ allowed: true, name: 'Test French' }, { allowed: false, name: '' }], 'Individual permissions and voice choices are saved independently');
+    const missingVoice = await win.webContents.executeJavaScript(`(async () => {
+      CAI.spaces[0].voiceName = 'Removed voice';
+      CAI.spaces[0].robotEl.click();
+      document.querySelector('.rp-voice-button').click();
+      for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      const select = document.querySelector('.rp-voice-select');
+      return { value: select.value, disabled: select.selectedOptions[0].disabled };
+    })()`);
+    assert.deepEqual(missingVoice, { value: 'Removed voice', disabled: true }, 'A missing saved voice is shown explicitly instead of silently switching');
     console.log('Speech app: IPC, complete live history, individual deletion and confirmed clear passed.');
+    console.log('Skill settings: user/folder installs and protected custom copies passed.');
+    console.log('Robot voice: consent, voice selection, missing voices and persistence passed.');
   } catch (error) { console.error(error); status = 1; }
   finally { app.exit(status); }
 });

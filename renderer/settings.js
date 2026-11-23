@@ -383,6 +383,70 @@
     return sec;
   }
 
+  function robotSkillSection() {
+    const sec = section('Skill robot-say');
+    sec.id = 'set-robot-skill';
+    sec.appendChild(el('p', 'set-help', 'Installe les instructions pour Claude Code, Codex et Copilot afin de partager les avancées et les questions avec le robot.'));
+    const actions = el('div', 'skill-actions');
+    const user = el('button', 'tb-btn primary', 'Installer pour tous mes projets');
+    const workspace = el('button', 'tb-btn', 'Installer dans ce workspace');
+    const folder = el('button', 'tb-btn', 'Choisir un dossier…');
+    const status = el('p', 'set-help');
+    actions.append(user, workspace, folder);
+    sec.append(actions, status);
+    const buttons = [user, workspace, folder];
+    let hasWorkspace = false;
+    let busy = false;
+    const enable = () => {
+      buttons.forEach((button) => { button.disabled = busy; });
+      workspace.disabled = busy || !hasWorkspace;
+    };
+    const refresh = async () => {
+      const state = await window.api.skillStatus();
+      hasWorkspace = !!state.workspace;
+      const label = (files) => files.some((file) => file.state === 'conflict') ? I18n.t('Copie différente — confirmation avant remplacement') :
+        files.every((file) => file.state === 'installed') ? I18n.t('Installé et à jour') : I18n.t('Installation incomplète ou absente');
+      status.textContent = I18n.t('Utilisateur : {0} · Workspace : {1}', label(state.user), state.workspace ? label(state.workspace) : I18n.t('Aucun workspace ouvert'));
+      enable();
+    };
+    const install = async (scope) => {
+      if (busy) return;
+      busy = true;
+      enable();
+      try {
+        const options = { scope };
+        if (scope === 'folder') {
+          options.root = await window.api.pickFolder();
+          if (!options.root) return;
+        }
+        let result = await window.api.installSkill(options);
+        if (result.conflict) {
+          const message = I18n.t('Les copies suivantes diffèrent du skill fourni. Les remplacer effacera leurs personnalisations :') +
+            '<br><br>' + result.files.map((file) => `<code>${UI.esc(file)}</code>`).join('<br>');
+          if (!await UI.confirm('Remplacer le skill existant ?', message, { ok: 'Remplacer', danger: true })) return;
+          result = await window.api.installSkill({ ...options, force: true });
+        }
+        UI.toast(I18n.t('Skill installé pour Claude Code, Codex et Copilot. Redémarrez votre assistant.'), { ms: 6000 });
+        await refresh();
+      } catch (error) {
+        UI.toast(I18n.t("Impossible d'installer le skill : {0}", error.message), { kind: 'error', ms: 6000 });
+      } finally {
+        busy = false;
+        enable();
+      }
+    };
+    user.addEventListener('click', () => install('user'));
+    workspace.addEventListener('click', () => install('workspace'));
+    folder.addEventListener('click', () => install('folder'));
+    busy = true;
+    enable();
+    refresh().catch((error) => {
+      status.textContent = I18n.t("Impossible de vérifier le skill : {0}", error.message);
+    }).finally(() => { busy = false; enable(); });
+    sec.appendChild(el('p', 'set-help', 'Le skill ne remplace pas la commande robot-say. Celle-ci est disponible dans les nouveaux terminaux RobotConsole ; hors de RobotConsole, installez-la avec npm link.'));
+    return sec;
+  }
+
   function section(title, ...rows) {
     const s = el('section', 'set-section');
     s.appendChild(el('h3', '', title));
@@ -435,14 +499,15 @@
           row("Saut de ligne final à l'enregistrement", toggle('editorFinalNewline')),
         ),
         section('Barre des robots', crewStyleCards()),
-        section('Robots',
+        Object.assign(section('Robots',
           row('Animations', toggle('robotAnimations'), 'Clignement, bouche qui parle, antenne'),
           row('Bulles de dialogue', toggle('robotBubbles')),
-          row('Voix de synthèse', toggle('robotVoice'), 'Lit les messages du robot à voix haute (désactivé par défaut)'),
+          row('Voix de synthèse', toggle('robotVoice'), 'Active la voix uniquement pour les robots autorisés dans leur menu → Voix'),
           toolAnimBlock(),
           row('Corps du robot dans la zone', toggle('robotBodyInZone'), "Le robot de l'en-tête dépasse un peu sur l'onglet courant"),
           row('Volume des sons', range('robotVolume', 0, 100, 5, (v) => `${v} %`), 'Son joué quand un robot a fini (clic droit sur un robot → 🔔)'),
-        ),
+        ), { id: 'set-robots' }),
+        robotSkillSection(),
         section('Explorateur de fichiers',
           row('Afficher les fichiers cachés', toggle('showHidden'), 'Fichiers commençant par un point'),
           row('Ouvrir sur la vue Modifications', toggle('explorerChangesFirst'), 'Si le dossier est un dépôt Git'),

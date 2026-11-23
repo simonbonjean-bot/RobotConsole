@@ -6,7 +6,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Speech } = require('../main/speech');
 const { parse, request } = require('../bin/robot-say.js');
-const { voiceCommand } = require('../main/speech-voice');
+const { SpeechVoice, voiceCommand } = require('../main/speech-voice');
 const { install } = require('./install-robot-skill');
 
 function fixture(t, deliver = async () => {}) {
@@ -148,11 +148,71 @@ test('CLI subprocess connects with environment and returns nonzero for failures'
 
 test('Windows voice treats quotes and shell operators as text, not code', () => {
   const text = "C'est terminé; $(Get-Process) \"🤖\"";
-  const command = voiceCommand(text, 70, 'win32');
+  const selected = "Voice'; $(Get-Process)";
+  const command = voiceCommand(text, 70, 'win32', selected);
   const script = Buffer.from(command.args.at(-1), 'base64').toString('utf16le');
   assert.ok(!script.includes(text));
   assert.ok(script.includes(Buffer.from(text, 'utf8').toString('base64')));
+  assert.ok(!script.includes(selected));
+  assert.ok(script.includes(Buffer.from(selected, 'utf8').toString('base64')));
+  assert.ok(script.indexOf('SelectVoice') < script.indexOf('.Speak'));
+  assert.ok(!Buffer.from(voiceCommand(text, 70, 'win32').args.at(-1), 'base64').toString('utf16le').includes('SelectVoice'));
   assert.match(script, /Volume = 70/);
+});
+
+test('voice listing handles empty installations and rejects invalid responses', { skip: process.platform !== 'win32' }, async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const children = [];
+  const voice = new SpeechVoice({ spawnProcess: () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => child.emit('close', null);
+    children.push(child);
+    return child;
+  } });
+  const empty = voice.listVoices();
+  children[0].stdout.write('[]');
+  children[0].emit('close', 0);
+  assert.deepEqual(await empty, { supported: true, voices: [] });
+  const invalid = voice.listVoices();
+  children[1].stdout.write('[{"id":123,"name":"Voice","language":"fr-FR"}]');
+  children[1].emit('close', 0);
+  await assert.rejects(invalid, /Liste des voix invalide/);
+  const failed = voice.listVoices();
+  children[2].stderr.write('Voice service unavailable');
+  children[2].emit('close', 1);
+  await assert.rejects(failed, /Voice service unavailable/);
+  voice.stop();
+});
+
+test('revoking speech permission stops playback and cancels queued messages', async () => {
+  const { EventEmitter } = require('node:events');
+  const children = [];
+  const voice = new SpeechVoice({ spawnProcess: () => {
+    const child = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => child.emit('close', null);
+    children.push(child);
+    return child;
+  } });
+  let allowed = true;
+  const first = voice.speak('First', 70, () => allowed);
+  const second = voice.speak('Queued', 70, () => allowed);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(children.length, 1);
+  allowed = false;
+  voice.recheck();
+  assert.deepEqual(await first, { cancelled: true });
+  assert.deepEqual(await second, { cancelled: true });
+  assert.equal(children.length, 1, 'Revoked queued speech never launches a voice process');
+  const otherRobot = voice.speak('Other robot', 70, () => true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(children.length, 2);
+  children[1].emit('close', 0);
+  await otherRobot;
+  voice.stop();
 });
 
 test('skill installer supports all three assistants and refuses conflicting files', (t) => {
@@ -161,7 +221,11 @@ test('skill installer supports all three assistants and refuses conflicting file
   assert.equal(targets.length, 2);
   assert.ok(fs.readFileSync(targets[0]).equals(fs.readFileSync(targets[1])));
   fs.writeFileSync(targets[1], 'user changes');
-  assert.throws(() => install(root), /Skill existant différent/);
+  assert.throws(() => install(root), (error) => {
+    assert.equal(error.code, 'SKILL_CONFLICT');
+    assert.deepEqual(error.files, [targets[1]]);
+    return true;
+  });
   assert.equal(fs.readFileSync(targets[1], 'utf8'), 'user changes');
   install(root, true);
   assert.ok(fs.readFileSync(targets[0]).equals(fs.readFileSync(targets[1])));

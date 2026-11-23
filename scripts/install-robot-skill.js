@@ -2,14 +2,25 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-function install(root, force = false) {
+function inspect(root) {
   const source = fs.readFileSync(path.join(__dirname, '..', 'skills', 'robot-say', 'SKILL.md'));
-  const targets = ['.claude', '.agents'].map((folder) => path.join(root, folder, 'skills', 'robot-say', 'SKILL.md'));
-  for (const target of targets) {
-    if (fs.existsSync(target) && !fs.readFileSync(target).equals(source) && !force) {
-      throw new Error(`Skill existant différent : ${target}. Utilisez --force uniquement pour le remplacer.`);
-    }
+  return ['.claude', '.agents'].map((folder) => {
+    const target = path.join(root, folder, 'skills', 'robot-say', 'SKILL.md');
+    return { path: target, state: !fs.existsSync(target) ? 'missing' : fs.readFileSync(target).equals(source) ? 'installed' : 'conflict' };
+  });
+}
+
+function install(root, force = false) {
+  const files = inspect(root);
+  const conflicts = files.filter((file) => file.state === 'conflict');
+  if (conflicts.length && !force) {
+    const error = new Error(`Skill existant différent : ${conflicts[0].path}. Utilisez --force uniquement pour le remplacer.`);
+    error.code = 'SKILL_CONFLICT';
+    error.files = conflicts.map((file) => file.path);
+    throw error;
   }
+  const source = fs.readFileSync(path.join(__dirname, '..', 'skills', 'robot-say', 'SKILL.md'));
+  const targets = files.map((file) => file.path);
   for (const target of targets) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, source);
@@ -33,4 +44,4 @@ if (require.main === module) {
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
 
-module.exports = { install };
+module.exports = { install, inspect };

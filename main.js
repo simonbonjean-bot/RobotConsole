@@ -13,10 +13,12 @@ const Tests = require('./main/tests');
 const Docker = require('./main/docker');
 const Prisma = require('./main/prisma');
 const Graphify = require('./main/graphify');
+const { Subscriptions } = require('./main/subscriptions');
 const Remote = require('./main/remote');
 const Relay = require('./main/relay');
 const { Speech } = require('./main/speech');
 const { SpeechVoice } = require('./main/speech-voice');
+const RobotSkill = require('./scripts/install-robot-skill');
 
 const APP_NAME = 'RobotConsole';
 const APP_ID = 'RobotConsole.App';
@@ -165,7 +167,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     if (!quitting && windows.size > 1) { windows.delete(wcId); rememberWindows(); }
     else rememberWindows();
   });
-  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); });
+  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); speechVoice.recheck(); });
   win.on('resized', rememberWindows);
   win.on('moved', rememberWindows);
   rememberWindows();
@@ -190,7 +192,7 @@ const speech = new Speech({
     wc.send('speech:say', id, target.rid, text);
   }),
 });
-ipcMain.on('speech:publish', (e, robots) => speech.publish(e.sender.id, robots));
+ipcMain.on('speech:publish', (e, robots) => { speech.publish(e.sender.id, robots); speechVoice.recheck(); });
 ipcMain.handle('speech:record', (e, entry) => {
   const recorded = speech.record(entry);
   const duration = Math.min(15000, Math.max(1000, Number(entry.duration) || 2600));
@@ -203,7 +205,17 @@ ipcMain.handle('speech:delete', (_e, rid, id) => {
   if (removed) remote.speechChanged(rid);
   return removed;
 });
-ipcMain.handle('speech:voice', (_e, text, volume) => speechVoice.speak(text, volume));
+ipcMain.handle('speech:voice', (e, text, volume, rid) => {
+  const allowed = () => speech.windows.get(e.sender.id)?.some((robot) => robot.rid === rid && robot.voice === true) === true;
+  if (!allowed()) throw new Error('Voix non autorisée pour ce robot.');
+  const robot = speech.windows.get(e.sender.id).find((item) => item.rid === rid);
+  return speechVoice.speak(text, volume, allowed, robot.voiceName || '');
+});
+ipcMain.handle('speech:voices', () => speechVoice.listVoices());
+ipcMain.handle('speech:manageVoices', () => {
+  if (process.platform !== 'win32') throw new Error("L'ajout de voix depuis ce lien est disponible sous Windows.");
+  return shell.openExternal('ms-settings:speech');
+});
 ipcMain.on('speech:result', (e, id, error) => {
   const pending = speechPending.get(id);
   if (!pending || pending.wcId !== e.sender.id) return;
@@ -383,6 +395,23 @@ ipcMain.handle('win:context', (e) => {
   const { ws, winId } = ctxOf(e);
   return { winId: winId || 'main', ws: ws ? Workspace.load(ws) : null, recent: recent().map((p) => ({ root: p, ...pick(Workspace.load(p), ['name', 'seed']) })), home: os.homedir(), appName: APP_NAME };
 });
+ipcMain.handle('skills:status', (e) => {
+  const workspace = ctxOf(e).ws;
+  return { user: RobotSkill.inspect(os.homedir()), workspace: workspace ? RobotSkill.inspect(workspace) : null };
+});
+ipcMain.handle('skills:install', (e, options) => {
+  let root;
+  if (options?.scope === 'user') root = os.homedir();
+  else if (options?.scope === 'workspace') root = ctxOf(e).ws;
+  else if (options?.scope === 'folder' && typeof options.root === 'string' && path.isAbsolute(options.root)) root = options.root;
+  else throw new Error('Destination du skill invalide.');
+  if (!root || !fs.statSync(root).isDirectory()) throw new Error('Ouvrez un workspace ou choisissez un dossier existant.');
+  try { return { files: RobotSkill.install(root, options.force === true), conflict: false }; }
+  catch (error) {
+    if (error.code === 'SKILL_CONFLICT') return { conflict: true, files: error.files };
+    throw error;
+  }
+});
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 const statePathFor = (e) => { const { ws, winId } = ctxOf(e); return statePath(ws, winId || 'main'); };
 ipcMain.handle('state:load', (e) => readJson(statePathFor(e), null));
@@ -494,6 +523,11 @@ ipcMain.on('ws:close', (e) => {
   entry.win.close();
 });
 ipcMain.on('ws:reveal', (e) => { const { ws } = ctxOf(e); if (ws) shell.openPath(Workspace.robotDir(ws)); });
+
+// ---------- Abonnements IA (comptes locaux, indépendants du workspace) ----------
+const subscriptions = new Subscriptions({ userData });
+ipcMain.handle('subscriptions:read', (_e, force) => subscriptions.read(force === true));
+ipcMain.handle('subscriptions:claudeInstall', () => subscriptions.installClaude());
 
 // ---------- Services du workspace ----------
 const services = new Services({ ptyHost, shells: SHELLS });

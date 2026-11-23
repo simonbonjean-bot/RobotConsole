@@ -37,6 +37,7 @@
     tests: { icon: '🧪', label: 'Tests' },
     docker: { icon: '🐳', label: 'Docker' },
     services: { icon: '🛰', label: 'Services' },
+    subscriptions: { icon: '%', label: 'Abonnements IA' },
     prisma: { icon: '◆', label: 'Prisma / BDD' },
     graphify: { icon: '🕸', label: 'Graphify' },
   };
@@ -68,6 +69,8 @@
       traits: sp.traits || undefined,
       icon: sp.icon || undefined,
       sound: sp.sound || undefined,
+      voice: sp.voice === true || undefined,
+      voiceName: sp.voiceName || undefined,
       remote: sp.remote && sp.remote !== 'off' ? sp.remote : undefined,
       rid: sp.rid,
       parked: sp.parked || undefined,
@@ -155,6 +158,8 @@
   function publishSpeech() {
     api.speechPublish(spaces.map((sp) => ({
       rid: sp.rid, name: sp.name,
+      voice: Settings.data.robotVoice && sp.voice === true,
+      voiceName: sp.voiceName || '',
       sessions: sp.tabs.map((t) => t.ptyId).filter(Boolean),
       roots: [...new Set([ctx.ws?.root, ...sp.tabs.map((t) => t.cwd)].filter(Boolean))],
     })));
@@ -164,6 +169,7 @@
     if (!space) return Promise.reject(new Error('Robot introuvable.'));
     publishSpeech();
     const spoken = source === 'app' ? I18n.t(text) : text;
+    ms = Math.max(ms, Math.min(20000, Math.max(6000, spoken.length * 65)));
     const recorded = api.speechRecord({ rid: space.rid, name: space.name, text: spoken, source, duration: ms }).then((entry) => {
       window.dispatchEvent(new CustomEvent('robot:speech-recorded', { detail: entry }));
       return entry;
@@ -171,27 +177,53 @@
       UI.toast(I18n.t("Impossible d'enregistrer le message : {0}", error.message), { kind: 'error' });
       if (source === 'cli') throw error;
     });
-    if (Settings.data.robotVoice) {
-      api.speechVoice(spoken, Settings.data.robotVolume).catch((error) => {
+    if (Settings.data.robotVoice && space.voice === true) {
+      api.speechVoice(spoken, Settings.data.robotVolume, space.rid).catch((error) => {
         UI.toast(I18n.t('Voix de synthèse indisponible : {0}', error.message), { kind: 'error' });
       });
     }
-    if (!Settings.data.robotBubbles) return recorded;
-    if (space.bubble) space.bubble.remove();
-    const visible = space.el.isConnected && space.el.offsetParent;
-    const anchor = (visible ? space.robotEl : space.crewFace).getBoundingClientRect();
-    const b = h('div', 'bubble');
-    b.textContent = spoken;
-    // Les messages utilisateur ne passent pas dans le dictionnaire de traduction.
-    b.setAttribute('data-no-i18n', '');
-    b.style.left = `${Math.max(4, anchor.left + 2)}px`;
-    b.style.top = `${anchor.bottom + 6}px`;
-    document.body.appendChild(b);
-    b.style.left = `${Math.max(4, Math.min(anchor.left + 2, innerWidth - b.offsetWidth - 8))}px`;
-    b.style.top = `${Math.max(4, Math.min(anchor.bottom + 6, innerHeight - b.offsetHeight - 8))}px`;
-    space.bubble = b;
-    setTimeout(() => b.classList.add('fade'), ms);
-    setTimeout(() => { b.remove(); if (space.bubble === b) space.bubble = null; }, ms + 350);
+    space.clearSpeech?.();
+    for (const el of [space.el, space.crewEl]) el.classList.add('speaking');
+    space.crewMini?.classList.add('speaking');
+    const bubbles = Settings.data.robotBubbles ? ['zone', 'crew'].map((place) => {
+      const b = h('div', `bubble bubble-${place}`);
+      const name = h('strong', 'bubble-name');
+      name.textContent = space.name;
+      b.append(name, document.createTextNode(spoken));
+      b.setAttribute('data-no-i18n', '');
+      document.body.appendChild(b);
+      return b;
+    }) : [];
+    const position = () => {
+      const anchors = [space.robotEl, space.crewFace.isConnected ? space.crewFace : space.crewMini];
+      [1, 0].forEach((i) => {
+        const b = bubbles[i];
+        if (!b) return;
+        const el = anchors[i];
+        const r = el?.getBoundingClientRect();
+        b.hidden = !el?.isConnected || !el.getClientRects().length || r.bottom <= 0 || r.right <= 0 || r.left >= innerWidth;
+        if (b.hidden) return;
+        b.style.left = `${Math.max(4, Math.min(r.left + 2, innerWidth - b.offsetWidth - 8))}px`;
+        let top = r.bottom + 8;
+        const other = i === 0 && !bubbles[1].hidden ? bubbles[1].getBoundingClientRect() : null;
+        const left = parseFloat(b.style.left);
+        if (other && left < other.right && left + b.offsetWidth > other.left) top = Math.max(top, other.bottom + 10);
+        b.style.top = `${Math.max(4, Math.min(top, innerHeight - b.offsetHeight - 8))}px`;
+      });
+    };
+    position();
+    const follow = bubbles.length ? setInterval(position, 100) : null;
+    const fade = setTimeout(() => bubbles.forEach((b) => b.classList.add('fade')), ms);
+    const end = setTimeout(() => space.clearSpeech?.(), ms + 350);
+    space.clearSpeech = () => {
+      clearInterval(follow);
+      clearTimeout(fade);
+      clearTimeout(end);
+      bubbles.forEach((b) => b.remove());
+      for (const el of [space.el, space.crewEl]) el.classList.remove('speaking');
+      space.crewMini?.classList.remove('speaking');
+      space.clearSpeech = null;
+    };
     return recorded;
   }
 
@@ -438,6 +470,8 @@
       traits: opts.traits || null, // réglages de l'atelier (sinon : tirage de la graine)
       icon: opts.icon || null, // icône de la zone (modèle de zone ou choix manuel)
       sound: opts.sound || null, // son joué quand le robot a fini de travailler : { id, delay }
+      voice: opts.voice === true,
+      voiceName: typeof opts.voiceName === 'string' ? opts.voiceName : '',
       remote: ['read', 'control'].includes(opts.remote) ? opts.remote : 'off', // accès depuis un téléphone / une tablette
       rid: /^[a-z0-9]{6,16}$/.test(opts.rid || '') && !spaces.some((x) => x.rid === opts.rid) ? opts.rid : Math.random().toString(36).slice(2, 10), // identifiant stable (lien / QR code du robot)
       screenId: opts.screenId || activeScreenId,
@@ -673,7 +707,7 @@
   async function closeSpace(space, released, checked = false) {
     if (!checked && !(await canCloseSpace(space))) return;
     for (const t of [...space.tabs]) closeTab(t, true);
-    space.bubble?.remove();
+    space.clearSpeech?.();
     const i = spaces.indexOf(space);
     spaces.splice(i, 1);
     Layout.remove(space.id);
@@ -711,7 +745,7 @@
   function receiveSpaces(state) {
     let last = null;
     for (const ss of state.spaces || []) {
-      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: activeScreenId });
+      const sp = createSpace({ seed: ss.seed, name: ss.name, traits: ss.traits, icon: ss.icon, sound: ss.sound, voice: ss.voice, voiceName: ss.voiceName, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: activeScreenId });
       for (const t of ss.tabs || []) { const { title, ...spec } = t; openTab(sp, { kind: 'terminal', ...spec }, { title }); }
       const at = sp.tabs[ss.activeTab] || sp.tabs[0];
       if (at) activateTab(at, false);
@@ -896,7 +930,6 @@
 
   function parkSpace(space) {
     space.parked = true;
-    space.bubble?.remove();
     Layout.remove(space.id);
     space.el.remove();
     if (maximized === space) maximized = null;
@@ -988,7 +1021,7 @@
         const mini = h('div', 'screen-minis');
         if (!list.length) mini.appendChild(h('span', 'screen-mini empty'));
         list.forEach((s) => {
-          const q = h('button', 'screen-mini' + (s === activeSpace ? ' active' : '') + (s.parked ? ' parked' : ''));
+          const q = h('button', 'screen-mini' + (s === activeSpace ? ' active' : '') + (s.parked ? ' parked' : '') + (s.clearSpeech ? ' speaking' : ''));
           q.style.setProperty('--space-accent', Themes.spaceAccent(s.bot));
           q.title = s.name + (s.parked ? ' (rangé)' : '');
           q.setAttribute('aria-label', q.title);
@@ -1118,6 +1151,7 @@
     { k: 'tests', icon: '🧪', label: 'Tests', desc: 'Lancer et suivre les tests' },
     { k: 'docker', icon: '🐳', label: 'Docker', desc: 'Conteneurs et compose' },
     { k: 'services', icon: '🛰', label: 'Services', desc: 'Services surveillés' },
+    { k: 'subscriptions', icon: '%', label: 'Abonnements IA', desc: 'Quotas Copilot, Codex et Claude' },
     { k: 'prisma', icon: '◆', label: 'Prisma / BDD', desc: 'Schéma et données' },
     { k: 'graphify', icon: '🕸', label: 'Graphify', desc: 'Graphe du projet' },
   ];
@@ -1226,7 +1260,7 @@
   const allParked = h('div', 'all-parked hidden',
     '<div class="ap-title">Tous les robots sont rangés</div><div class="ap-sub">Cliquez sur un robot en haut pour ressortir son espace, ou glissez-le ici.</div><div class="ap-actions empty-actions"></div>');
   spacesEl.appendChild(allParked);
-  for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify']) {
+  for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify']) {
     const b = h('button', 'tb-btn', `${KIND_INFO[k].icon} ${KIND_INFO[k].label}`);
     b.addEventListener('click', () => openKind(null, k));
     allParked.querySelector('.ap-actions').appendChild(b);
@@ -1500,14 +1534,18 @@
     const extra = h('div', 'rp-extra');
     const xSound = h('button', 'rp-xbtn');
     const xShare = h('button', 'rp-xbtn');
-    extra.append(xSound, xShare);
+    const xVoice = h('button', 'rp-xbtn rp-voice-button');
+    extra.append(xSound, xShare, xVoice);
     xSound.addEventListener('click', () => setPane('sound'));
     xShare.addEventListener('click', () => setPane('share'));
+    xVoice.addEventListener('click', () => setPane('voice'));
     const renderExtra = () => {
       xSound.innerHTML = '<span class="rp-x-ico">🔔</span><span class="rp-x-txt"><b>Son de fin</b><small></small></span>';
       xSound.querySelector('small').textContent = space.sound ? `${RobotSounds.label(space.sound.id)} · ${space.sound.delay || 5} s` : 'Aucun';
       xShare.innerHTML = '<span class="rp-x-ico">📡</span><span class="rp-x-txt"><b>Partage</b><small></small></span>';
       xShare.querySelector('small').textContent = { off: 'Fermé', read: 'Lecture seule', control: 'Contrôle' }[space.remote] + (space.remote !== 'off' && !remoteOn ? ' · serveur arrêté' : '');
+      xVoice.innerHTML = '<span class="rp-x-ico">🔊</span><span class="rp-x-txt"><b>Voix</b><small></small></span>';
+      xVoice.querySelector('small').textContent = space.voice ? (Settings.data.robotVoice ? 'Autorisée' : 'Désactivée globalement') : 'Non autorisée';
     };
 
     const body = h('div', 'rp-body');
@@ -1515,7 +1553,87 @@
     const paneTool = h('div', 'rp-pane rp-pane-tool');
     const paneSound = h('div', 'rp-pane rp-pane-sound');
     const paneShare = h('div', 'rp-pane rp-pane-share');
-    body.append(paneBot, paneTool, paneSound, paneShare);
+    const paneVoice = h('div', 'rp-pane rp-pane-voice');
+    body.append(paneBot, paneTool, paneSound, paneShare, paneVoice);
+
+    const renderVoice = async () => {
+      const seq = (paneVoice.seq = (paneVoice.seq || 0) + 1);
+      paneVoice.innerHTML = '';
+      paneVoice.appendChild(h('div', 'rp-help', 'Ce robot ne lit ses messages à voix haute que si vous l’autorisez et que la voix de synthèse est activée dans les paramètres.'));
+      const label = h('label', 'rp-row');
+      const checkbox = h('input', 'rp-voice-consent');
+      checkbox.type = 'checkbox';
+      checkbox.checked = space.voice === true;
+      checkbox.addEventListener('change', () => {
+        space.voice = checkbox.checked;
+        save();
+        renderExtra();
+      });
+      label.append(checkbox, h('span', '', 'Autoriser ce robot à parler'));
+      paneVoice.appendChild(label);
+      const voiceRow = h('label', 'rp-row');
+      voiceRow.appendChild(h('span', 'rp-row-lbl', 'Voix du robot'));
+      const voiceSelect = h('select', 'set-input rp-voice-select');
+      voiceSelect.setAttribute('aria-label', I18n.t('Voix du robot'));
+      const defaultVoice = h('option');
+      defaultVoice.value = '';
+      defaultVoice.textContent = I18n.t('Voix système par défaut');
+      voiceSelect.appendChild(defaultVoice);
+      voiceSelect.disabled = true;
+      voiceRow.appendChild(voiceSelect);
+      paneVoice.appendChild(voiceRow);
+      const voiceStatus = h('div', 'rp-help', esc(I18n.t('Chargement des voix…')));
+      paneVoice.appendChild(voiceStatus);
+      const voiceActions = h('div', 'rp-choices');
+      const addVoices = h('button', 'tb-btn rp-add-voices', esc(I18n.t('Ajouter d’autres voix…')));
+      addVoices.addEventListener('click', async () => {
+        try { await api.manageSpeechVoices(); }
+        catch (error) { UI.toast(I18n.t('Impossible d’ouvrir les paramètres Windows : {0}', error.message), { kind: 'error' }); }
+      });
+      const refreshVoices = h('button', 'tb-btn rp-refresh-voices', esc(I18n.t('Actualiser les voix')));
+      refreshVoices.addEventListener('click', () => renderVoice());
+      voiceActions.append(addVoices, refreshVoices);
+      paneVoice.appendChild(voiceActions);
+      const voiceInstallHelp = h('div', 'rp-help', esc(I18n.t('Dans Windows, utilisez Ajouter des voix, puis actualisez cette liste. Seules les voix compatibles System.Speech sont disponibles ; certaines voix du Narrateur ne le sont pas.')));
+      paneVoice.appendChild(voiceInstallHelp);
+      voiceSelect.addEventListener('change', () => {
+        space.voiceName = voiceSelect.value;
+        save();
+      });
+      if (!Settings.data.robotVoice) {
+        paneVoice.appendChild(h('div', 'rp-help', 'La voix de synthèse est désactivée globalement. Votre autorisation sera conservée.'));
+        const settings = h('button', 'tb-btn', 'Ouvrir les paramètres de voix');
+        settings.addEventListener('click', () => { robotPicker.classList.add('hidden'); Settings.open('robots'); });
+        paneVoice.appendChild(settings);
+      }
+      try {
+        const result = await api.speechVoices();
+        if (paneVoice.seq !== seq || !paneVoice.isConnected) return;
+        voiceActions.classList.toggle('hidden', !result.supported);
+        voiceInstallHelp.classList.toggle('hidden', !result.supported);
+        for (const voice of result.voices) {
+          const option = h('option');
+          option.value = voice.id;
+          option.textContent = `${voice.name} (${voice.language})`;
+          option.setAttribute('data-no-i18n', '');
+          voiceSelect.appendChild(option);
+        }
+        if (space.voiceName && !result.voices.some((voice) => voice.id === space.voiceName)) {
+          const missing = h('option');
+          missing.value = space.voiceName;
+          missing.textContent = I18n.t('{0} (indisponible)', space.voiceName);
+          missing.disabled = true;
+          voiceSelect.appendChild(missing);
+        }
+        voiceSelect.value = space.voiceName;
+        voiceSelect.disabled = !result.supported || !result.voices.length;
+        voiceStatus.textContent = !result.supported ? I18n.t('Le choix de la voix est actuellement disponible sous Windows.') :
+          !result.voices.length ? I18n.t('Aucune voix système disponible.') :
+            I18n.t('La voix choisie est conservée pour ce robot.');
+      } catch (error) {
+        if (paneVoice.seq === seq && paneVoice.isConnected) voiceStatus.textContent = I18n.t('Impossible de charger les voix : {0}', error.message);
+      }
+    };
 
     // ---- 🔔 Son quand le robot a fini de travailler ----
     const renderSound = () => {
@@ -1678,12 +1796,15 @@
       slotTool.classList.toggle('on', p === 'tool');
       xSound.classList.toggle('on', p === 'sound');
       xShare.classList.toggle('on', p === 'share');
+      xVoice.classList.toggle('on', p === 'voice');
       paneBot.classList.toggle('hidden', p !== 'robot');
       paneTool.classList.toggle('hidden', p !== 'tool');
       paneSound.classList.toggle('hidden', p !== 'sound');
       paneShare.classList.toggle('hidden', p !== 'share');
+      paneVoice.classList.toggle('hidden', p !== 'voice');
       if (p === 'sound') renderSound();
       if (p === 'share') renderShare();
+      if (p === 'voice') renderVoice();
       if (p === 'tool') setTimeout(() => search.focus(), 0);
     };
 
@@ -1872,7 +1993,7 @@
   }
 
   // ---------- Icônes d'onglet (type ou modèle) ----------
-  const KIND_TEXT = { terminal: '>_', explorer: '📁', editor: '✎', tests: '🧪', docker: '🐳', services: '🛰', prisma: '◆', graphify: '🕸' };
+  const KIND_TEXT = { terminal: '>_', explorer: '📁', editor: '✎', tests: '🧪', docker: '🐳', services: '🛰', subscriptions: '%', prisma: '◆', graphify: '🕸' };
   function tabIconText(tab) { return TabModels.iconHtml(tab.icon || tab.model?.icon || KIND_TEXT[tab.kind] || '•'); }
   function tabIconHtml(tab) {
     if (tab.icon) return TabModels.iconHtml(tab.icon);
@@ -2020,7 +2141,7 @@
 
   function fillEmpty(space) {
     space.emptyKinds.innerHTML = '';
-    for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify']) {
+    for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify']) {
       const b = h('button', 'tb-btn', `${KIND_INFO[k].icon} ${KIND_INFO[k].label}`);
       b.addEventListener('click', () => openKind(space, k));
       space.emptyKinds.appendChild(b);
@@ -2081,7 +2202,7 @@
       { label: 'Renommer…', icon: '✎', action: () => renameTab(tab) },
       { label: 'Changer l\'icône…', icon: tabIconHtml(tab), action: () => changeTabIcon(tab, anchor) },
       ...(tab.icon ? [{ label: 'Icône par défaut', icon: '↺', action: () => { tab.icon = null; const el = tab.el.querySelector('.tab-icon'); if (el) el.innerHTML = tabIconHtml(tab); renderCrewTabs(tab.space); save(); } }] : []),
-      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...kindOf(tab).serialize(tab), sessionId: undefined }) },
+      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...kindOf(tab).serialize(tab), sessionId: undefined }) },
       { label: 'Déplacer vers', icon: '↦', submenu: [
         ...others.map((s) => ({ label: s.name + (s.parked ? ' (rangé)' : ''), action: () => moveTab(tab, s) })),
         others.length ? '-' : null,
@@ -2341,6 +2462,7 @@
       { label: 'Tests', icon: '🧪', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'tests') },
       { label: 'Docker', icon: '🐳', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'docker') },
       { label: 'Services', icon: '🛰', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'services') },
+      { label: 'Abonnements IA', icon: '%', action: () => openKind(space, 'subscriptions') },
       { label: 'Prisma / BDD', icon: '◆', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'prisma') },
       { label: 'Graphify', icon: '🕸', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'graphify') },
     ];
@@ -2544,6 +2666,7 @@
     if (changed.includes('robotBodyInZone')) spaces.forEach(applyBot);
     if (changed.includes('crewStyle')) requestAnimationFrame(() => spaces.forEach((sp) => resizeTab(sp.activeTab)));
     if (changed.includes('language')) I18n.setLang(Settings.data.language);
+    if (changed.includes('robotVoice')) publishSpeech();
     if (changed.includes('tabModels') || changed.includes('zoneModels') || changed.includes('hiddenPresetIds')) spaces.forEach(fillEmpty);
     if (changed.some((k) => k.startsWith('editor') || k === 'fontFamily' || k === 'fontSize')) Editor.applySettings();
     for (const s of spaces) for (const t of s.tabs) kindOf(t).applySettings?.(t, changed);
@@ -2604,7 +2727,7 @@
           activeScreenId = (screens[state.activeScreen] || screens[0]).id;
           screensReady = true;
         }
-        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked || ss.asleep, traits: ss.traits, icon: ss.icon, sound: ss.sound, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: (screens[ss.screen || 0] || screens[0]).id });
+        const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked || ss.asleep, traits: ss.traits, icon: ss.icon, sound: ss.sound, voice: ss.voice, voiceName: ss.voiceName, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: (screens[ss.screen || 0] || screens[0]).id });
         for (const t of ss.tabs || []) {
           const { title, ...spec } = t;
           try { openTab(s, { kind: 'terminal', ...spec }, { title }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }

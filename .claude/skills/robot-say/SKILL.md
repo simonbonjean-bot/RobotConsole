@@ -1,6 +1,6 @@
 ---
 name: robot-say
-description: Keep the user informed of task progress through their RobotConsole robot. Use when asked to notify the robot, speak through robot-say, or announce milestones, blockers and completion in RobotConsole.
+description: Keep the user informed of task progress and questions through their RobotConsole robot. Use when asked to notify the robot, speak through robot-say, or announce milestones, questions, blockers and completion in RobotConsole.
 ---
 
 # Robot progress updates
@@ -21,6 +21,24 @@ robot-say "C'est terminé : la correction est en place."
 ```
 
 Pass the message as one quoted argument. Use the shell's literal-string syntax and escaping; never interpolate user input into executable shell code. Do not include credentials, private file contents, or sensitive information in messages.
+
+## Questions and decisions
+
+Whenever you need an answer from the user during the task, send the actual question to the robot with `robot-say` before presenting it through the CLI's normal question tool or prompt. This includes clarifications, choices, confirmations and approval requests when notification execution is already permitted.
+
+- Display the question itself, not just "I have a question" or "Waiting for your answer". Include the relevant choices so the user knows what decision is needed.
+- Use the user's language. Questions are not routine progress updates: do not suppress them because of the one-update-per-minute guideline.
+- Still ask through the CLI's native question mechanism and wait for the user's answer there. A robot message does not replace the prompt, collect an answer, or grant permission.
+- Never include secrets or sensitive details in the notification; phrase the question safely.
+- If the robot cannot be targeted or notification execution requires permission you do not yet have, ask normally in the CLI. Do not bypass permission checks or repeatedly retry notifications.
+
+Example:
+
+```text
+robot-say "Quelle base de données dois-je utiliser : PostgreSQL ou SQLite ?"
+```
+
+Then present that same question through the CLI's normal question mechanism.
 
 ## Target selection
 

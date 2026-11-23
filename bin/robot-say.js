@@ -53,7 +53,7 @@ function request(pipe, message) {
 async function main() {
   const message = parse(process.argv.slice(2));
   if (message.action === 'help') {
-    console.log('robot-say "Message"\nrobot-say --robot <nom-ou-id> "Message"\nrobot-say --list\nrobot-say --history [--robot <nom-ou-id>]\n\nDétection : terminal intégré, sinon dossier courant. RobotConsole doit être ouvert.\nVoix optionnelle : Paramètres > Robots > Voix de synthèse.');
+    console.log('robot-say "Message"\nrobot-say --robot <nom-ou-id> "Message"\nrobot-say --list\nrobot-say --history [--robot <nom-ou-id>]\n\nDétection : terminal intégré, sinon dossier courant. RobotConsole doit être ouvert.\nVoix optionnelle : activer Paramètres > Robots > Voix de synthèse, puis autoriser le robot dans son menu > Voix.');
     return;
   }
   const appData = process.platform === 'win32' ? process.env.APPDATA :

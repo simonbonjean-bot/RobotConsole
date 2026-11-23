@@ -13,6 +13,7 @@
     tests: { label: 'Tests', icon: '🧪' },
     docker: { label: 'Docker', icon: '🐳' },
     services: { label: 'Services', icon: '🛰' },
+    subscriptions: { label: 'Abonnements IA', icon: '%' },
     prisma: { label: 'Prisma / BDD', icon: '◆' },
     graphify: { label: 'Graphify', icon: '🕸' },
   };

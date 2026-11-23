@@ -35,6 +35,7 @@
     tab('explorer', 'Fichiers du projet', 'explorer', 'lu:folder-code'),
     tab('tests', 'Tests du projet', 'tests', 'lu:test-tubes'),
     tab('services', 'Services du projet', 'services', 'lu:server'),
+    tab('subscriptions', 'Abonnements IA', 'subscriptions', 'lu:brain-circuit'),
     tab('docker', 'Docker du projet', 'docker', 'dv:docker'),
     tab('prisma', 'Base de données du projet', 'prisma', 'lu:database'),
     tab('graphify', 'Graphe du projet', 'graphify', 'lu:git-graph'),

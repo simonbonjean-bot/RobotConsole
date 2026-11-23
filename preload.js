@@ -7,9 +7,13 @@ contextBridge.exposeInMainWorld('api', {
   speechRecord: (entry) => ipcRenderer.invoke('speech:record', entry),
   speechHistory: (rid) => ipcRenderer.invoke('speech:history', rid),
   speechDelete: (rid, id = null) => ipcRenderer.invoke('speech:delete', rid, id),
-  speechVoice: (text, volume) => ipcRenderer.invoke('speech:voice', text, volume),
+  speechVoice: (text, volume, rid) => ipcRenderer.invoke('speech:voice', text, volume, rid),
+  speechVoices: () => ipcRenderer.invoke('speech:voices'),
+  manageSpeechVoices: () => ipcRenderer.invoke('speech:manageVoices'),
   speechResult: (id, error) => ipcRenderer.send('speech:result', id, error),
   onSpeech: on('speech:say'),
+  skillStatus: () => ipcRenderer.invoke('skills:status'),
+  installSkill: (options) => ipcRenderer.invoke('skills:install', options),
   // Terminaux
   listShells: () => ipcRenderer.invoke('shells:list'),
   createPty: (opts) => ipcRenderer.invoke('pty:create', opts),
@@ -95,6 +99,10 @@ contextBridge.exposeInMainWorld('api', {
   gitDiscard: (repo, file, code) => ipcRenderer.invoke('git:discard', repo, file, code),
   openPath: (p) => ipcRenderer.send('shell:openPath', p),
   showItem: (p) => ipcRenderer.send('shell:showItem', p),
+
+  // Abonnements IA
+  subscriptionsRead: (force = false) => ipcRenderer.invoke('subscriptions:read', force),
+  subscriptionsClaudeInstall: () => ipcRenderer.invoke('subscriptions:claudeInstall'),
 
   // Services du workspace
   svcOpen: (root) => ipcRenderer.invoke('svc:open', root),

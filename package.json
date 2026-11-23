@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "test:speech": "node --test scripts/test-speech.js && node scripts/test-speech-ui.js && node scripts/test-speech-app.js",
+    "test:subscriptions": "node --test scripts/test-subscriptions.js && node scripts/test-subscriptions-ui.js",
     "install:robot-skill": "node scripts/install-robot-skill.js"
   },
   "keywords": [],
@@ -21,6 +22,7 @@
     "simple-icons": "^16.38.0"
   },
   "dependencies": {
+    "@microsoft/copilot-sdk": "^2.0.1",
     "@dagrejs/dagre": "^3.1.3",
     "@highlightjs/cdn-assets": "^11.12.0",
     "@lydell/node-pty": "^1.2.0-beta.18",

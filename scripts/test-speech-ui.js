@@ -51,7 +51,7 @@ app.whenReady().then(async () => {
       const ctx = { ws: { root: 'D:\\\\project' } };
       const spaces = [{
         rid: 'r1', name: 'One', tabs: [{ ptyId: 'p1', cwd: 'D:\\\\project' }],
-        el: document.getElementById('zone'), robotEl: document.getElementById('robot'), crewFace: document.getElementById('crew')
+        el: document.getElementById('zone'), robotEl: document.getElementById('robot'), crewFace: document.getElementById('crew'), crewEl: document.getElementById('crew')
       }];
       ${speechCode}
       window.__settings = Settings; window.__spaces = spaces; window.__say = say;
@@ -62,23 +62,31 @@ app.whenReady().then(async () => {
       const check = (ok, message) => { if (!ok) throw new Error(message); };
       await window.__receive(1, 'r1', "C'est fait ✓");
       await new Promise((resolve) => setTimeout(resolve, 30));
-      check(document.querySelector('.bubble').textContent === "C'est fait ✓", 'CLI message is never translated');
+      check(document.querySelector('.bubble').textContent === "OneC'est fait ✓", 'CLI message is never translated and identifies its robot');
+      check(document.querySelectorAll('.bubble:not([hidden])').length === 2, 'Message appears in both zone and robot bar');
+      check(document.querySelectorAll('.speaking').length === 2, 'Both robots stay highlighted');
       check(window.__records[0].source === 'cli', 'CLI source is saved');
-      check(window.__records[0].duration >= 3500, 'CLI bubble duration is transmitted with the recorded message');
+      check(window.__records[0].duration >= 6000, 'Speech remains visible for at least six seconds');
       check(!window.__results[0].error, 'Delivery acknowledged');
       check(window.__voices.length === 0, 'Voice is disabled by default');
       await window.__say(window.__spaces[0], "C'est fait ✓");
       check(window.__records[1].text === 'Done ✓', 'Application messages use displayed language');
+      check(document.querySelectorAll('.bubble').length === 2, 'A new message replaces both previous bubbles');
       window.__settings.data.robotBubbles = false;
       await window.__receive(2, 'r1', 'Saved without bubbles');
       check(window.__records.at(-1).text === 'Saved without bubbles', 'Disabled bubbles still save history');
+      check(!document.querySelector('.bubble'), 'Disabled bubbles remove the previous message');
+      check(document.querySelectorAll('.speaking').length === 2, 'Speaker remains identifiable with bubbles disabled');
       window.__settings.data.robotBubbles = true;
       window.__spaces[0].el.style.display = 'none';
       await window.__receive(3, 'r1', 'Hidden robot');
-      check(document.querySelector('.bubble').textContent === 'Hidden robot', 'Hidden robot still shows a crew bubble');
+      check(document.querySelector('.bubble-crew').textContent === 'OneHidden robot' && document.querySelector('.bubble-zone').hidden, 'Hidden robot still shows a crew bubble');
       window.__settings.data.robotVoice = true;
+      await window.__receive(44, 'r1', 'Not approved');
+      check(window.__voices.length === 0, 'Global voice does not grant permission to a robot');
+      window.__spaces[0].voice = true;
       await window.__receive(4, 'r1', 'Speak');
-      check(window.__voices[0][0] === 'Speak' && window.__voices[0][1] === 70, 'Optional voice receives message and volume');
+      check(window.__voices[0][0] === 'Speak' && window.__voices[0][1] === 70 && window.__voices[0][2] === 'r1', 'Approved voice receives message, volume and robot identity');
       window.__recordError = true;
       await window.__receive(5, 'r1', 'Cannot save');
       check(window.__results.at(-1).error.includes('Disk full'), 'Persistence failure is not acknowledged as success');
@@ -92,9 +100,18 @@ app.whenReady().then(async () => {
       check(document.querySelector('.speech-history').textContent.includes('Hidden robot'), 'History includes hidden robot messages');
       document.querySelector('.dlg-actions .primary').click();
       await dialog;
+      window.__spaces[0].el.style.display = '';
+      await window.__say(window.__spaces[0], 'Timer check', 1);
+      await new Promise((resolve) => setTimeout(resolve, 5600));
+      check(document.querySelectorAll('.bubble:not(.fade)').length === 2 && document.querySelectorAll('.speaking').length === 2, 'Message and enlargement persist together');
+      await window.__say(window.__spaces[0], 'Replacement', 1);
+      await new Promise((resolve) => setTimeout(resolve, 850));
+      check(document.querySelectorAll('.bubble:not(.fade)').length === 2 && document.querySelectorAll('.speaking').length === 2, 'Previous timers cannot clear a newer message');
+      await new Promise((resolve) => setTimeout(resolve, 5600));
+      check(!document.querySelector('.bubble') && !document.querySelector('.speaking'), 'Speech and enlargement are cleaned up together');
       return { records: window.__records.length, results: window.__results.length };
     })()`);
-    assert.equal(result.results, 6);
+    assert.equal(result.results, 7);
     console.log('Speech UI: bubbles, history, localization, optional voice and failure reporting passed.');
   } catch (error) { console.error(error); status = 1; }
   finally { win?.destroy(); app.exit(status); }

@@ -1,0 +1,14 @@
+.subscriptions-pane { overflow: hidden; }
+.subscription-note { padding: 12px 16px; font-size: 12px; }
+.subscriptions-list { flex: 1; overflow: auto; padding: 0 16px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; align-content: start; }
+.subscription-card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+.subscription-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.subscription-state { font-size: 12px; }
+.state-error, .quota-warning { color: var(--red, #e87979); }
+.state-stale, .state-unavailable { color: var(--yellow, #d9b75f); }
+.subscription-message { font-size: 12px; line-height: 1.6; }
+.subscription-quota { margin: 18px 0; display: grid; gap: 6px; font-size: 13px; }
+.subscription-quota progress { width: 100%; height: 10px; accent-color: var(--accent, #71a7ff); }
+.subscription-quota progress.quota-warning { accent-color: var(--red, #e87979); }
+.subscription-meta { font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.subscription-card .empty-actions { flex-wrap: wrap; margin-top: 14px; }

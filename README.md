@@ -28,6 +28,7 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 | **🧪 Tests** | Discovers suites and groups them by category (unit, business rules, integration, end-to-end…). Supports Vitest, Jest, Playwright, node:test, pytest, Go, Cargo and custom commands. Run all suites or retry failures, inspect output, filter results and enable watch mode. |
 | **🐳 Docker** | Containers grouped by compose file: status, health, ports, CPU, memory, actions and live logs. |
 | **🛰 Services** | Workspace services (`.robot/services.json`): start / stop, detected ports, HTTP health checks, automatic restart, interactive logs. |
+| **% AI subscriptions** | Copilot, Codex / ChatGPT and Claude subscription quotas, reset times and availability in one account-level dashboard. |
 | **◆ Prisma / DB** | Prisma schema, table diagram, data browsing, SQL console (PostgreSQL), migrations. |
 | **🕸 Graphify** | Builds and displays the project's knowledge graph with [Graphify](https://github.com/Graphify-Labs/graphify): interactive graph, report, log. |
 | **🌐 Browser** | An isolated web browser, handy for keeping `http://localhost:3000` next to your terminal. |
@@ -179,17 +180,23 @@ The file is local to the profile, not committed to the workspace, and has no aut
 
 #### Optional speech synthesis
 
-Voice playback is **off by default**. Enable it in **Settings → Robots → Speech synthesis** (**Paramètres → Robots → Voix de synthèse** in French). This applies to both application messages and `robot-say` notifications; the bubble setting is independent.
+Voice playback requires **both** the global setting and explicit permission for the individual robot. Both are **off by default**. Enable **Settings → Robots → Speech synthesis** (**Paramètres → Robots → Voix de synthèse** in French), then click the robot → **Voice** (**Voix**) → **Allow this robot to speak** (**Autoriser ce robot à parler**). Permission is saved per robot and follows it when moved between windows; new robots do not inherit it. Removing permission stops its current playback and cancels its queued voice messages. Disabling the global setting stops all robot speech without erasing individual permissions. This applies to both application messages and `robot-say` notifications; bubbles and history remain independent.
 
 Windows uses the installed system voice through Windows PowerShell / `System.Speech`, and the app's sound-volume setting controls its volume. macOS uses `say`; Linux requires `spd-say`. Messages are read sequentially, with at most 20 pending voice requests. If the queue is full or a voice is unavailable, an error is shown in RobotConsole without discarding the message or its saved history.
 
+On Windows, click a robot → **Voice** → **Robot voice** to choose one of the enabled voices installed for `System.Speech`, with its name and language, or select **Default system voice**. The choice is saved per robot, follows it between windows, and does not grant speech permission by itself. If a saved voice is no longer installed, it is marked unavailable; choose another voice rather than relying on an automatic fallback. Voice selection is not currently supported on macOS/Linux, where the default system voice remains in use.
+
+Use **Add more voices…** (**Ajouter d’autres voix…**) in the same panel to open **Windows Settings → Time & language → Speech**. Install voices using **Add voices**, then return to RobotConsole and click **Refresh voices** (**Actualiser les voix**). RobotConsole lists only enabled voices accessible to `System.Speech`; some modern or Narrator voices are not exposed to this engine and will not appear even if installed in Windows.
+
 ### Progress skill for Claude Code, Codex and Copilot CLI
 
-The shared skill source is `skills\robot-say\SKILL.md`. It teaches an assistant to call the same local command to announce the start of work, meaningful milestones, blockers, changes of approach and actual completion.
+The shared skill source is `skills\robot-say\SKILL.md`. It teaches an assistant to call the same local command to announce the start of work, meaningful milestones, questions, blockers, changes of approach and actual completion.
 
 **Installing the skill and installing the command are separate steps.** The skill installer copies instructions; it does not install Node.js, the assistant CLI, or the global `robot-say` command. An integrated RobotConsole terminal already supplies the command, while external terminals need `npm link` or the script's absolute path.
 
 #### Install for your user or a project
+
+**From the interface (no terminal command needed):** open **Settings → robot-say skill** (**Paramètres → Skill robot-say** in French). Click **Install for all my projects** for a user installation, **Install in this workspace** for the open workspace, or **Choose a folder…** to select another project. The section shows the user / workspace installation status and asks before replacing different, potentially customized copies. Each button installs the Claude Code and shared Codex / Copilot copies together. Restart the assistant afterwards.
 
 Run the installer from the RobotConsole checkout. The recommended user installation makes the skill available across your projects:
 
@@ -203,6 +210,26 @@ For this checkout only, or for another project:
 npm run install:robot-skill
 npm run install:robot-skill -- --project "D:\Projects\my-app"
 ```
+
+**From a terminal in another project**, do not run `npm run install:robot-skill` directly: npm looks for that script in the current project's `package.json`, where it normally does not exist. Instead, invoke RobotConsole's installer by its absolute path:
+
+```powershell
+# Install in the project where this terminal is currently located.
+node "D:\Documents\console-ai\scripts\install-robot-skill.js"
+
+# Or install for your user, across all projects.
+node "D:\Documents\console-ai\scripts\install-robot-skill.js" --user
+```
+
+Replace `D:\Documents\console-ai` with your RobotConsole checkout location. The direct script only needs Node.js; it does not require adding an npm script or dependencies to the target project. On another machine, make the RobotConsole checkout (including the installer and shared skill source) available there first, then use its local path.
+
+Alternatively, run npm against the RobotConsole checkout while explicitly keeping the destination as your current project:
+
+```powershell
+npm --prefix "D:\Documents\console-ai" run install:robot-skill -- --project "$PWD"
+```
+
+The `--project "$PWD"` argument matters here: `--prefix` runs the npm script from RobotConsole, not from your target project.
 
 | Assistant | Project installation | User installation on Windows |
 | --- | --- | --- |
@@ -242,11 +269,14 @@ The skill asks the assistant to use brief, factual messages in your language, wi
 ```powershell
 robot-say "Je commence l'analyse du problème."
 robot-say "La correction est prête, je vérifie son fonctionnement."
+robot-say "Quelle base de données dois-je utiliser : PostgreSQL ou SQLite ?"
 robot-say "Je suis bloqué : une dépendance nécessaire est indisponible."
 robot-say "C'est terminé : la correction est en place."
 ```
 
 It does not announce every tool call or claim completion before the work is actually complete. If notification fails, it instructs the assistant to report that failure once in the normal response and continue the engineering task, rather than retrying in a loop or claiming the robot received the message.
+
+Whenever the assistant needs your input, it sends the **actual question and relevant choices** to the robot before asking through the CLI's normal question tool or prompt. This applies to clarifications, decisions and confirmations; questions are not subject to the routine-update frequency guideline. You still answer in the CLI: the robot notification does not collect answers or replace approval checks. If notification execution is not permitted or no robot can be selected, the assistant asks normally in the CLI without bypassing permissions.
 
 The skill is **instructions, not an automatic background hook**. Installing it does not guarantee notifications in every conversation: activate it for the task. It does not report anything while the assistant is idle, install software without permission, or bypass execution restrictions.
 
@@ -266,6 +296,7 @@ Use `--force` only if you intend to replace any customizations in those installe
 
 | Symptom | Action |
 | --- | --- |
+| npm reports `Missing script: "install:robot-skill"` | You ran the command in another project's folder. Invoke RobotConsole's installer by its absolute path, or use `npm --prefix` with an explicit `--project` destination as shown above. |
 | `robot-say` is not found | Open a new integrated terminal, or run `npm link` from the checkout and verify the npm global prefix is on PATH. Alternatively invoke `node` with the absolute script path. |
 | RobotConsole is closed / profile incorrect | Start the app. For a custom profile, match `ROBOTCONSOLE_USERDATA`; do not reuse a pipe variable from another profile. |
 | No robot matches / several robots match | Run `robot-say --list` and pass an explicit `--robot` ID. In an integrated terminal, preserve the inherited session variables. |
@@ -273,14 +304,14 @@ Use `--force` only if you intend to replace any customizations in those installe
 | The skill does not appear in Claude | Verify the user or project `.claude\skills\robot-say\SKILL.md` path, then restart Claude Code. |
 | The skill does not appear in Codex / Copilot | Verify the relevant `.agents\skills\robot-say\SKILL.md` path and restart the CLI. In Copilot, use `/skills list` and `/skills reload`; also check that the skill is not disabled or its location ignored. |
 | The installer refuses an existing skill | Keep your custom copy, or explicitly rerun with `--force` after deciding to replace it. |
-| Bubbles appear but there is no sound | Enable speech synthesis, check the system voice and, on Windows, the volume setting. Review any voice error shown by the app. |
+| Bubbles appear but there is no sound | Enable global speech synthesis and allow that robot to speak in its menu → Voice. Check the system voice and, on Windows, the volume setting. Review any voice error shown by the app. |
 | The assistant cannot execute the command | Grant the appropriate local-command permission if permitted by your environment; the skill does not override sandbox or execution policies. |
 
 For contributors, `npm run test:speech` covers command parsing and transport, history persistence and deletion, skill installation, and the Electron message interface / real IPC integration.
 
 ## Installation
 
-Requirements: **Windows 10/11**, [Node.js](https://nodejs.org) 20 or newer, and Git. The app also runs on macOS and Linux, but it is developed and tested on Windows.
+Requirements: **Windows 10/11**, [Node.js](https://nodejs.org) 20.19 or 22.12+, and Git. The app also runs on macOS and Linux, but it is developed and tested on Windows.
 
 ```bash
 git clone https://github.com/simonbonjean-bot/RobotConsole.git
@@ -297,6 +328,18 @@ The core terminal, explorer/editor and browser do not require Docker or a databa
 - **Docker tab**: Docker CLI and a running Docker engine; Compose projects use Docker Compose.
 - **Prisma / DB tab**: a project's Prisma schema for the diagram, and a reachable PostgreSQL database for queries and data browsing.
 - **Remote access**: enable the local server explicitly; access from other networks requires your own relay deployment or an appropriate private network.
+
+### AI subscription connectors
+
+Open **AI subscriptions** from the new-tab menu or its built-in preset. It is independent of the workspace. It reads account quotas, not API token costs, and makes no model inference calls. Refresh manually or leave the tab visible for automatic refresh every five minutes. Missing data is not displayed as zero; unlimited quotas do not show a percentage.
+
+- **Copilot** uses the bundled official Microsoft Copilot SDK runtime and its existing local authentication (`account.getQuota`). Sign in with Copilot first.
+- **Codex** requires Codex CLI on PATH, signed in with a ChatGPT account (`codex login`). The connector starts a short-lived `codex app-server`, calls `account/rateLimits/read`, then stops it.
+- **Claude** uses the documented Claude Code `statusLine` data, not private OAuth endpoints. Click **Enable Claude connector**, confirm, then use Claude Code. The installed Node.js script stores only quotas and the observation timestamp in RobotConsole's local data directory. A compatible Claude Code version and subscription session must expose `rate_limits`; otherwise the card reports unavailable. Old observations are marked stale, not reset to zero.
+
+Claude activation adds a user-level `statusLine` setting, preserves other settings and backs up an existing settings file to `settings.json.robotconsole-backup`. It refuses to replace an existing status line: use **Copy connector command** to have your current script pass the same stdin JSON to the connector. Project-level status-line overrides must also call the connector. To disable it, remove only the added `statusLine` setting, or remove the connector call from your own script.
+
+Contributor checks: `npm run test:subscriptions`. To check the locally signed-in Copilot and Codex accounts under Electron without printing quota values, run `node scripts/test-subscriptions-ui.js --live`.
 
 ### Graphify (optional)
 The Graphify tab uses the `graphify` Python CLI (Python 3.11+):
