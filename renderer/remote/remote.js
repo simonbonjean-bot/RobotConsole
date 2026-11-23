@@ -16,7 +16,7 @@
   const speechPanel = h('aside', 'speech-panel hidden');
   view.before(speechPanel);
   const liveSpeech = new Map();
-  let speechRobot = null, historyVersion = 0;
+  let speechRobot = null, historyVersion = 0, speechCursor = null, speechCount = 0;
 
   const speechKey = (r) => `${r.wcId}:${r.key}`;
   function updateSpeechBubbles() {
@@ -39,22 +39,28 @@
     }, duration);
     if (speechRobot && speechKey(speechRobot) === key) loadSpeechHistory();
   }
-  function loadSpeechHistory() {
+  function loadSpeechHistory(older = false) {
     if (!speechRobot) return;
     const version = ++historyVersion;
     const body = $('.speech-history', speechPanel);
-    body.textContent = T('Chargement des messages…', 'Loading messages…');
+    const more = $('.speech-older', speechPanel), refresh = $('.speech-refresh', speechPanel);
+    const status = $('.speech-status', speechPanel);
+    more.disabled = refresh.disabled = true;
+    status.setAttribute('role', 'status');
+    status.textContent = T('Chargement des messages…', 'Loading messages…');
     const finish = (result) => {
       if (version !== historyVersion) return;
-      body.innerHTML = '';
+      more.disabled = refresh.disabled = false;
       if (result.error) {
-        body.textContent = result.error;
-        body.classList.add('error');
+        status.textContent = result.error;
+        status.setAttribute('role', 'alert');
         return;
       }
+      status.textContent = '';
       body.classList.remove('error');
+      if (!older) { body.innerHTML = ''; speechCount = 0; }
       const entries = result.entries || [];
-      if (!entries.length) body.textContent = T('Aucun message pour ce robot.', 'No messages for this robot.');
+      if (!speechCount) body.innerHTML = '';
       for (const entry of [...entries].reverse()) {
         const item = h('div', 'speech-entry');
         const meta = h('small');
@@ -64,6 +70,10 @@
         item.append(meta, text);
         body.appendChild(item);
       }
+      speechCount += entries.length;
+      speechCursor = result.nextCursor;
+      if (!speechCount && !speechCursor) body.textContent = T('Aucun message pour ce robot.', 'No messages for this robot.');
+      more.hidden = !speechCursor;
     };
     if (ws?.readyState !== 1) return finish({ error: T('Connexion interrompue', 'Disconnected') });
     const req = ++reqSeq;
@@ -72,7 +82,7 @@
       finish({ error: T('Pas de réponse', 'No response') });
     }, 10000);
     pending.set(req, (result) => { clearTimeout(timer); finish(result); });
-    send({ t: 'speechHistory', wcId: speechRobot.wcId, key: speechRobot.key, req });
+    send({ t: 'speechHistory', wcId: speechRobot.wcId, key: speechRobot.key, cursor: older ? speechCursor : null, req });
   }
   function renderSpeech(r, force) {
     for (const key of liveSpeech.keys()) if (!robots.some((robot) => speechKey(robot) === key)) liveSpeech.delete(key);
@@ -88,6 +98,8 @@
       return;
     }
     speechRobot = r;
+    speechCursor = null;
+    speechCount = 0;
     speechPanel.innerHTML = '';
     speechPanel.classList.remove('hidden');
     const bubble = h('div', 'robot-message hidden');
@@ -96,10 +108,16 @@
     const details = h('details', 'speech-details');
     const summary = h('summary');
     summary.textContent = T('Messages du robot', 'Robot messages');
-    const refresh = h('button', 'btn small');
+    const refresh = h('button', 'btn small speech-refresh');
     refresh.textContent = T('Actualiser', 'Refresh');
-    refresh.addEventListener('click', loadSpeechHistory);
-    details.append(summary, refresh, h('div', 'speech-history'));
+    refresh.addEventListener('click', () => loadSpeechHistory());
+    const older = h('button', 'btn small speech-older');
+    older.textContent = T('Messages plus anciens', 'Older messages');
+    older.hidden = true;
+    older.addEventListener('click', () => loadSpeechHistory(true));
+    const status = h('div', 'speech-status');
+    status.setAttribute('role', 'status');
+    details.append(summary, refresh, h('div', 'speech-history'), older, status);
     speechPanel.append(bubble, details);
     updateSpeechBubbles();
     loadSpeechHistory();
@@ -387,7 +405,7 @@
     plus.addEventListener('click', () => setFont((xterm.options.fontSize || 11) + 1));
     fit.addEventListener('click', () => { fontSize = 0; localStorageSet('rc-font', ''); fitFont(); });
     refresh.addEventListener('click', () => requestTermSnapshot(t));
-    send({ t: 'attach', id: tab.sessionId });
+    send({ t: 'attach', id: tab.sessionId, replay: false });
   }
   function attachedTerm(t, m) {
     if (!m.found) { t.xterm.write(`\x1b[90m[${T('session introuvable', 'session not found')}]\x1b[0m`); return; }
@@ -403,6 +421,11 @@
     }
     if (t.synchronizing) { t.pendingData.push(m); return; }
     if (m.seq <= t.lastSeq) return;
+    if (m.seq !== t.lastSeq + 1) {
+      t.pendingData.push(m);
+      requestTermSnapshot(t);
+      return;
+    }
     t.lastSeq = m.seq;
     writeLive(t, m.data);
   }

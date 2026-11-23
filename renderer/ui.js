@@ -1,5 +1,7 @@
 // RobotConsole — composants d'interface partagés : menus contextuels, boîtes de dialogue, notifications
 (function () {
+  const platform = window.api?.platform || window.splash?.platform;
+  if (platform) document.documentElement.dataset.platform = platform;
   const h = (tag, cls, html) => {
     const el = document.createElement(tag);
     if (cls) el.className = cls;
@@ -223,10 +225,11 @@
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       const k = e.key.toLowerCase();
-      if (e.ctrlKey && !e.altKey && !e.shiftKey && k === 'c' && term.hasSelection()) { copy(); term.clearSelection(); return false; }
-      if (e.ctrlKey && e.shiftKey && !e.altKey && k === 'c') { copy(); return false; }
-      if (interactive && ((e.ctrlKey && !e.altKey && k === 'v') || (e.shiftKey && !e.ctrlKey && e.key === 'Insert'))) { e.preventDefault(); paste(); return false; }
-      if (!interactive && e.ctrlKey && !e.altKey && !e.shiftKey && k === 'a') { e.preventDefault(); term.selectAll(); return false; }
+      const primary = e.ctrlKey || (platform === 'darwin' && e.metaKey);
+      if (primary && !e.altKey && !e.shiftKey && k === 'c' && term.hasSelection()) { copy(); term.clearSelection(); return false; }
+      if (primary && e.shiftKey && !e.altKey && k === 'c') { copy(); return false; }
+      if (interactive && ((primary && !e.altKey && k === 'v') || (e.shiftKey && !e.ctrlKey && e.key === 'Insert'))) { e.preventDefault(); paste(); return false; }
+      if (!interactive && primary && !e.altKey && !e.shiftKey && k === 'a') { e.preventDefault(); term.selectAll(); return false; }
       return true;
     });
     host.addEventListener('contextmenu', (e) => {

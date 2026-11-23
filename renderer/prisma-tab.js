@@ -498,7 +498,7 @@
     d.sqlInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runSql(tab); }
-      else if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && d.sqlHistory.length) {
+      else if (Platform.primary(e) && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && d.sqlHistory.length) {
         e.preventDefault();
         d.histPos = Math.max(-1, Math.min(d.sqlHistory.length - 1, d.histPos + (e.key === 'ArrowUp' ? 1 : -1)));
         d.sqlInput.value = d.histPos < 0 ? '' : d.sqlHistory[d.histPos];

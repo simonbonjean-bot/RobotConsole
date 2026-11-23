@@ -23,7 +23,7 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 
 | Tab | What it does |
 | --- | --- |
-| **>_ Terminal** | xterm.js + node-pty: PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL… Search, clickable links, WebGL rendering, startup commands. |
+| **>_ Terminal** | xterm.js + node-pty: PowerShell 7, Windows PowerShell, cmd, Git Bash and WSL on Windows; your login shell, Bash, Zsh, Fish and sh on macOS/Linux. Search, clickable links, WebGL rendering, startup commands. |
 | **📁 Explorer / editor** | File tree, code / Markdown / image previews, Git status and diffs, staging / discarding, favorites and file operations. Built-in Monaco editor with find / replace, multiple cursors, undo / redo, display options and a clickable status bar. |
 | **🧪 Tests** | Discovers suites and groups them by category (unit, business rules, integration, end-to-end…). Supports Vitest, Jest, Playwright, node:test, pytest, Go, Cargo and custom commands. Run all suites or retry failures, inspect output, filter results and enable watch mode. |
 | **🐳 Docker** | Containers grouped by compose file: status, health, ports, CPU, memory, actions and live logs. |
@@ -69,7 +69,16 @@ For example, keep a development screen with the editor and terminal, a quality-c
 - Enable the server in **Settings → Remote access** and scan the QR code with your phone (same Wi-Fi, or through a VPN such as Tailscale). Only open robots are visible.
 - Terminals are live (with a key bar for Esc, Tab, Ctrl, arrows in control mode). The other tabs have a mobile view: start/stop services, run tests, Docker up/stop/restart, browse files and Git diffs, browse database tables, take a screenshot of a browser tab…
 - The link carries a secret token (kept in a cookie, regenerable). Do not expose the port to the Internet.
-- **From any network**: link the PC to a separately deployed, self-hosted `robotconsole-relay` (Settings → Remote access → Relay → Sign in). Phones sign in to the same account; everything is end-to-end encrypted and each new phone is approved on the PC with a 6-digit code. The relay is not included in this repository.
+- **From any network**: link the PC to a separately deployed, self-hosted [robotconsole-relay](https://github.com/simonbonjean-bot/robotconsole-relay) (Settings → Remote access → Relay → Sign in). Phones sign in to the same account; everything is end-to-end encrypted and each new phone is approved on the PC with a 6-digit code. See the [relay repository for setup instructions](https://github.com/simonbonjean-bot/robotconsole-relay).
+
+#### On a smartphone
+Choose an open robot from the workspace list, then switch between its shared tabs. A green indicator shows that the mobile page is connected. Control mode provides command input and a terminal key bar; read-only mode lets you follow output without sending commands.
+
+| Open robots | Terminal in control mode | Terminal in read-only mode |
+| --- | --- | --- |
+| <img src="docs/screenshots/mobile-robots.png" alt="Smartphone view listing the Development and Quality checks robots in the Console AI Demo workspace" width="250"> | <img src="docs/screenshots/mobile-terminal.png" alt="Connected smartphone terminal in control mode, with command input and special keys" width="250"> | <img src="docs/screenshots/mobile-readonly.png" alt="Connected smartphone terminal showing real test output in read-only mode without command input" width="250"> |
+
+*Captured from the real mobile interface in Chrome's smartphone emulation (390 × 844 CSS pixels), connected over authenticated local HTTP/WebSocket to disposable demo terminals. These are not photographs of a physical phone or a demonstration of an Internet relay connection. No access token or QR code is shown.*
 
 ### Customization
 - Themes: Midnight, Dawn (light), Ocean, Forest, Neon and High contrast. Each theme also sets the terminal palette and syntax highlighting.
@@ -182,11 +191,11 @@ The file is local to the profile, not committed to the workspace, and has no aut
 
 Voice playback requires **both** the global setting and explicit permission for the individual robot. Both are **off by default**. Enable **Settings → Robots → Speech synthesis** (**Paramètres → Robots → Voix de synthèse** in French), then click the robot → **Voice** (**Voix**) → **Allow this robot to speak** (**Autoriser ce robot à parler**). Permission is saved per robot and follows it when moved between windows; new robots do not inherit it. Removing permission stops its current playback and cancels its queued voice messages. Disabling the global setting stops all robot speech without erasing individual permissions. This applies to both application messages and `robot-say` notifications; bubbles and history remain independent.
 
-Windows uses the installed system voice through Windows PowerShell / `System.Speech`, and the app's sound-volume setting controls its volume. macOS uses `say`; Linux requires `spd-say`. Messages are read sequentially, with at most 20 pending voice requests. If the queue is full or a voice is unavailable, an error is shown in RobotConsole without discarding the message or its saved history.
+Windows uses **eSpeak NG** locally. Run `npm run install:espeak` once to download and extract the official Windows release into `.runtime/espeak` (no system installation). macOS uses the built-in `say`; Linux requires Speech Dispatcher (`spd-say`, for example `sudo apt install speech-dispatcher` on Debian/Ubuntu). On macOS/Linux, `npm run install:espeak` only checks the native speech tool; it does not install system packages. The app volume controls speech volume on all three platforms. Messages are read sequentially, with at most 20 pending requests. Voice errors are shown without discarding messages or history.
 
-On Windows, click a robot → **Voice** → **Robot voice** to choose one of the enabled voices installed for `System.Speech`, with its name and language, or select **Default system voice**. The choice is saved per robot, follows it between windows, and does not grant speech permission by itself. If a saved voice is no longer installed, it is marked unavailable; choose another voice rather than relying on an automatic fallback. Voice selection is not currently supported on macOS/Linux, where the default system voice remains in use.
+On Windows, click a robot → **Voice** → **Robot voice** to choose a French or English eSpeak NG robot voice. The default is French. The choice follows the robot between windows and does not grant speech permission. Old Windows voice selections switch to the French default. Voice selection is not currently supported on macOS/Linux.
 
-Use **Add more voices…** (**Ajouter d’autres voix…**) in the same panel to open **Windows Settings → Time & language → Speech**. Install voices using **Add voices**, then return to RobotConsole and click **Refresh voices** (**Actualiser les voix**). RobotConsole lists only enabled voices accessible to `System.Speech`; some modern or Narrator voices are not exposed to this engine and will not appear even if installed in Windows.
+Use **Refresh voices** to reload the list after installing eSpeak NG. The robotic timbres are bundled with eSpeak NG; no online service or neural voice model is used.
 
 ### Progress skill for Claude Code, Codex and Copilot CLI
 
@@ -304,23 +313,37 @@ Use `--force` only if you intend to replace any customizations in those installe
 | The skill does not appear in Claude | Verify the user or project `.claude\skills\robot-say\SKILL.md` path, then restart Claude Code. |
 | The skill does not appear in Codex / Copilot | Verify the relevant `.agents\skills\robot-say\SKILL.md` path and restart the CLI. In Copilot, use `/skills list` and `/skills reload`; also check that the skill is not disabled or its location ignored. |
 | The installer refuses an existing skill | Keep your custom copy, or explicitly rerun with `--force` after deciding to replace it. |
-| Bubbles appear but there is no sound | Enable global speech synthesis and allow that robot to speak in its menu → Voice. Check the system voice and, on Windows, the volume setting. Review any voice error shown by the app. |
+| Bubbles appear but there is no sound | Enable global speech synthesis and allow that robot to speak in its menu → Voice. On Windows, run `npm run install:espeak` and check the volume setting. Review any voice error shown by the app. |
 | The assistant cannot execute the command | Grant the appropriate local-command permission if permitted by your environment; the skill does not override sandbox or execution policies. |
 
 For contributors, `npm run test:speech` covers command parsing and transport, history persistence and deletion, skill installation, and the Electron message interface / real IPC integration.
 
 ## Installation
 
-Requirements: **Windows 10/11**, [Node.js](https://nodejs.org) 20.19 or 22.12+, and Git. The app also runs on macOS and Linux, but it is developed and tested on Windows.
+Requirements: **Windows 10/11, macOS or desktop Linux**, [Node.js](https://nodejs.org) **24 LTS**, and Git. Install dependencies separately on each operating system and CPU architecture; do not copy `node_modules` between machines. Electron and node-pty use native platform binaries.
 
 ```bash
 git clone https://github.com/simonbonjean-bot/RobotConsole.git
 cd RobotConsole
-npm install
+npm ci
 npm start
 ```
 
-On Windows, `Lancer RobotConsole.bat` starts the app (after `npm install`).
+After installing dependencies, use `Lancer RobotConsole.bat` on Windows, `./Lancer\ RobotConsole.command` on macOS, or `./Lancer\ RobotConsole.sh` on Linux. `npm start` works on all three systems.
+
+On Linux, Electron needs a graphical session (X11 or Wayland with XWayland) and the distribution's GTK 3, NSS, GBM and ALSA libraries. Debian/Ubuntu installations can use `sudo apt install libgtk-3-0 libnss3 libgbm1 libasound2t64` (older distributions call the last package `libasound2`). Do not run the app as root or disable Chromium's sandbox. If node-pty has no prebuilt binary for your machine, its installation also needs Python 3 and a C/C++ toolchain (`build-essential` on Debian/Ubuntu, Xcode Command Line Tools on macOS).
+
+On macOS/Linux, RobotConsole discovers installed login shells and imports the login shell's PATH when started from a graphical launcher, so tools installed through Homebrew or a shell-managed Node installation remain available. On macOS, the native application menu supports Quit and editing shortcuts; closing the last window keeps the app available in the Dock.
+
+Application data stays outside the checkout: `%APPDATA%\RobotConsole` on Windows, `~/Library/Application Support/RobotConsole` on macOS, and `${XDG_CONFIG_HOME:-~/.config}/RobotConsole` on Linux. `ROBOTCONSOLE_USERDATA` overrides this location. Unix IPC uses private, user-owned sockets and recovers sockets left behind after a crash.
+
+Workspace paths, templates and file operations use native separators and preserve filename case on macOS/Linux. Commands saved in templates or `.robot/services.json` still need to work in the selected shell: RobotConsole does not translate PowerShell commands into Bash.
+
+### Cross-platform checks
+
+`npm test` runs unit tests, a real PTY shell/resize/reconnection check, and Electron UI tests. `npm run test:platform` runs only the platform and PTY checks. On headless Linux, run UI tests with `xvfb-run -a npm run test:ui`.
+
+The GitHub Actions compatibility workflow runs on Windows, macOS and Ubuntu. Linux service port discovery requires `ss` (the `iproute2` package) or `lsof`; macOS uses `lsof`. Missing probing tools are reported in the Services tab rather than presenting empty results as successful detection.
 
 ### Optional tool requirements
 The core terminal, explorer/editor and browser do not require Docker or a database. Tests use the selected project's own runner; services use the commands configured in `.robot/services.json`.
@@ -351,6 +374,8 @@ uv tool install graphifyy     # or: pipx install graphifyy
 The **Build** button runs `graphify extract . --code-only`, which analyzes the code locally, with no model or API key. The result is written to `graphify-out/` (`graph.html`, `graph.json`, `GRAPH_REPORT.md`), and the tab refreshes on its own when that folder changes.
 
 ## Keyboard shortcuts
+
+On macOS, Command is also accepted for application shortcuts, copy/paste, search and save; terminal Ctrl+C remains available to interrupt processes. Ctrl+Tab still switches tabs. Hold Option while dragging files to copy on macOS (Ctrl on Windows/Linux).
 
 | Shortcut | Action |
 | --- | --- |

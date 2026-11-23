@@ -5,6 +5,7 @@
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { pathKey, withinPath } = require('./platform');
 
 const COMPOSE_RE = /^(docker-)?compose([.-][\w.-]+)?\.ya?ml$/i;
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.turbo', 'coverage', 'vendor', 'target']);
@@ -27,8 +28,8 @@ function parseLines(s) {
   return s.split(/\r?\n/).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
 
-const norm = (p) => path.resolve(p).toLowerCase();
-const inside = (p, root) => { const a = norm(p), b = norm(root); return a === b || a.startsWith(b + path.sep); };
+const norm = (p) => pathKey(path.resolve(p));
+const inside = (p, root) => withinPath(path.resolve(p), path.resolve(root));
 
 // Fichiers compose du workspace (racine + 2 niveaux de sous-dossiers)
 function composeFiles(root) {

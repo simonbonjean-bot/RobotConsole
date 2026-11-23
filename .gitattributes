@@ -1,0 +1,6 @@
+* text=auto
+*.sh text eol=lf
+*.command text eol=lf
+bin/robot-say text eol=lf
+bin/robot-say.js text eol=lf
+bin/claude-usage.js text eol=lf

@@ -4,8 +4,12 @@ const I18n = require('./main/i18n');
 const { app, BrowserWindow, ipcMain, clipboard, shell, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { StateStore } = require('./main/state-store');
 const os = require('os');
+const Platform = require('./main/platform');
+Platform.initializeEnvironment();
 const PtyClient = require('./main/ptyclient');
+const TerminalFlow = require('./main/terminal-flow');
 const fsGit = require('./main/fs-git');
 const Workspace = require('./main/workspace');
 const Services = require('./main/services');
@@ -43,6 +47,7 @@ if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
 const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
 const writeJson = (p, v) => { try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(v, null, 2)); } catch {} };
+const stateStore = new StateStore();
 const dataFile = (n) => path.join(app.getPath('userData'), n);
 
 // ---------- Shells disponibles ----------
@@ -51,8 +56,7 @@ function detectShells() {
   const pf = process.env.ProgramFiles || 'C:\\Program Files';
   const list = [];
   if (process.platform !== 'win32') {
-    list.push({ id: 'default', label: 'Shell', file: process.env.SHELL || '/bin/bash', args: ['-l'] });
-    return list;
+    return Platform.unixShells();
   }
   const pwsh = [path.join(pf, 'PowerShell', '7', 'pwsh.exe'), path.join(pf, 'PowerShell', '7-preview', 'pwsh.exe')].find(exists);
   if (pwsh) list.push({ id: 'pwsh', label: 'PowerShell 7', file: pwsh, args: ['-NoLogo'] });
@@ -76,10 +80,10 @@ let quitting = false;
 
 function windowsFile() { return dataFile('windows.json'); }
 function rememberWindows() {
-  const list = [...windows.values()].map(({ win, ws, winId }) => ({ ws, winId, bounds: win.isDestroyed() ? undefined : win.getNormalBounds(), maximized: !win.isDestroyed() && win.isMaximized() }));
+  const list = [...windows.values()].filter((entry) => !entry.omitFromSession && !entry.closed).map(({ win, ws, winId }) => ({ ws, winId, bounds: win.isDestroyed() ? undefined : win.getNormalBounds(), maximized: !win.isDestroyed() && win.isMaximized() }));
   writeJson(windowsFile(), list);
 }
-const sameWs = (a, b) => (a || '').toLowerCase() === (b || '').toLowerCase();
+const sameWs = (a, b) => Platform.pathKey(a) === Platform.pathKey(b);
 function statePath(ws, winId = 'main') {
   const name = winId === 'main' ? 'state.json' : `state-${winId}.json`;
   return ws ? Workspace.file(ws, name) : dataFile(name);
@@ -88,7 +92,7 @@ function statePath(ws, winId = 'main') {
 function recent() { return readJson(dataFile('recent.json'), []).filter((p) => exists(path.join(p, Workspace.DIR))); }
 function addRecent(ws) {
   if (!ws) return;
-  const list = [ws, ...recent().filter((p) => p.toLowerCase() !== ws.toLowerCase())].slice(0, 12);
+  const list = [ws, ...recent().filter((p) => !sameWs(p, ws))].slice(0, 12);
   writeJson(dataFile('recent.json'), list);
 }
 
@@ -100,7 +104,7 @@ function findWindow(ws, winId = 'main') {
 function createWindow({ ws = null, winId = 'main', bounds, maximized, initialState } = {}) {
   const existing = findWindow(ws, winId);
   if (existing) { existing.win.show(); existing.win.focus(); return existing.win; }
-  if (initialState) writeJson(statePath(ws, winId), initialState);
+  if (initialState) stateStore.write(statePath(ws, winId), initialState);
   if (ws) { Workspace.ensure(ws); addRecent(ws); }
 
   // Décale les nouvelles fenêtres pour qu'elles ne se superposent pas exactement
@@ -117,7 +121,9 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     title: ws ? `${Workspace.load(ws).name} — ${APP_NAME}` : APP_NAME,
     icon: ICON_ICO,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0e1117', symbolColor: '#c9d1d9', height: 58 },
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 14, y: 18 } } : {
+      titleBarOverlay: { color: '#0e1117', symbolColor: '#c9d1d9', height: 58 },
+    }),
     show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, webviewTag: true },
   });
@@ -132,7 +138,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
       relaunchCommand: `"${process.execPath}" "${__dirname}"`, relaunchDisplayName: APP_NAME,
     });
   }
-  win.removeMenu();
+  if (process.platform !== 'darwin') win.removeMenu();
   win.webContents.on('will-attach-webview', (event, prefs, params) => {
     if (params.src !== 'about:blank' && !/^https?:\/\//i.test(params.src)) { event.preventDefault(); return; }
     delete prefs.preload;
@@ -156,6 +162,10 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
   });
 
   const wcId = win.webContents.id;
+  win.webContents.on('render-process-gone', () => unsubscribeAll(wcId));
+  win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) unsubscribeAll(wcId);
+  });
   win.on('close', (ev) => {
     // Fenêtre secondaire fermée par l'utilisateur : on lui demande quoi faire de ses espaces
     if (winId !== 'main' && !quitting && !entry.closeOk) {
@@ -164,7 +174,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
       return;
     }
     // La dernière fenêtre fermée (ou la fermeture de l'app) reste dans la liste à rouvrir
-    if (!quitting && windows.size > 1) { windows.delete(wcId); rememberWindows(); }
+    if (!quitting && windows.size > 1) { entry.omitFromSession = true; rememberWindows(); }
     else rememberWindows();
   });
   win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); speechVoice.recheck(); });
@@ -193,15 +203,15 @@ const speech = new Speech({
   }),
 });
 ipcMain.on('speech:publish', (e, robots) => { speech.publish(e.sender.id, robots); speechVoice.recheck(); });
-ipcMain.handle('speech:record', (e, entry) => {
-  const recorded = speech.record(entry);
+ipcMain.handle('speech:record', async (e, entry) => {
+  const recorded = await speech.record(entry);
   const duration = Math.min(15000, Math.max(1000, Number(entry.duration) || 2600));
   remote.speech(e.sender.id, recorded, duration);
   return recorded;
 });
-ipcMain.handle('speech:history', (_e, rid) => speech.history(rid, null));
-ipcMain.handle('speech:delete', (_e, rid, id) => {
-  const removed = speech.remove(rid, id);
+ipcMain.handle('speech:history', (_e, rid, options) => speech.historyPage(rid, options));
+ipcMain.handle('speech:delete', async (_e, rid, id) => {
+  const removed = await speech.remove(rid, id);
   if (removed) remote.speechChanged(rid);
   return removed;
 });
@@ -212,10 +222,6 @@ ipcMain.handle('speech:voice', (e, text, volume, rid) => {
   return speechVoice.speak(text, volume, allowed, robot.voiceName || '');
 });
 ipcMain.handle('speech:voices', () => speechVoice.listVoices());
-ipcMain.handle('speech:manageVoices', () => {
-  if (process.platform !== 'win32') throw new Error("L'ajout de voix depuis ce lien est disponible sous Windows.");
-  return shell.openExternal('ms-settings:speech');
-});
 ipcMain.on('speech:result', (e, id, error) => {
   const pending = speechPending.get(id);
   if (!pending || pending.wcId !== e.sender.id) return;
@@ -230,23 +236,33 @@ function own(id, wc) {
 }
 function unsubscribeAll(wcId) {
   for (const set of owners.values()) for (const wc of set) if (wc.isDestroyed() || wc.id === wcId) set.delete(wc);
+  terminalFlow.detach(wcId);
 }
 const outBuf = new Map();
+const terminalFlow = new TerminalFlow((id, size) => ptyHost.acknowledge(id, size));
 let outTimer = null;
 function sendTo(id, channel, ...args) {
   for (const wc of owners.get(id) || []) if (!wc.isDestroyed()) wc.send(channel, id, ...args);
 }
+function flushOutput(id) {
+  const data = outBuf.get(id);
+  if (!data) return;
+  outBuf.delete(id);
+  const consumers = [...(owners.get(id) || [])].filter((wc) => !wc.isDestroyed());
+  const token = terminalFlow.track(id, data.length, consumers.map((wc) => wc.id));
+  const seq = remote.onData(id, data);
+  for (const wc of consumers) wc.send('pty:data', id, data, seq, token);
+}
 ptyHost.onData = (id, data) => {
   outBuf.set(id, (outBuf.get(id) || '') + data);
+  if (outBuf.get(id).length >= 32 * 1024) flushOutput(id);
   if (!outTimer) outTimer = setTimeout(() => {
     outTimer = null;
-    for (const [k, v] of outBuf) sendTo(k, 'pty:data', v, remote.onData(k, v));
-    outBuf.clear();
+    for (const id of outBuf.keys()) flushOutput(id);
   }, 8);
 };
 ptyHost.onExit = (id, code) => {
-  const pending = outBuf.get(id);
-  if (pending) { sendTo(id, 'pty:data', pending, remote.onData(id, pending)); outBuf.delete(id); }
+  flushOutput(id);
   sendTo(id, 'pty:exit', code);
   remote.onExit(id, code);
   services.onExit(id, code);
@@ -254,15 +270,17 @@ ptyHost.onExit = (id, code) => {
 
 ptyHost.onResize = (id, cols, rows) => remote.onResize(id, cols, rows);
 // Garde l'ordre sortie → redimensionnement / rattachement (sinon sortie en double ou coupée à la mauvaise largeur)
-ptyHost.onFlush = (id) => {
-  const pending = outBuf.get(id);
-  if (!pending) return;
-  outBuf.delete(id);
-  sendTo(id, 'pty:data', pending, remote.onData(id, pending));
+ptyHost.onFlush = flushOutput;
+ptyHost.onDisconnect = (error) => {
+  console.error('[pty]', error.message);
+  outBuf.clear();
+  terminalFlow.pending.clear();
+  const consumers = new Set([...owners.values()].flatMap((set) => [...set]));
+  for (const wc of consumers) if (!wc.isDestroyed()) wc.send('pty:disconnected');
 };
 
 // ---------- Accès à distance (téléphone / tablette) ----------
-const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null, getSpeechHistory: (rid) => speech.history(rid, null) });
+const remote = new Remote({ ptyHost, getWc: (id) => windows.get(id)?.win.webContents || null, getSpeechHistory: (rid, options) => speech.historyPage(rid, options) });
 function remoteSettings() {
   const s = readJson(dataFile('settings.json'), {}) || {};
   const r = { enabled: false, port: 7777, token: '', ...(s.remote || {}) };
@@ -364,27 +382,32 @@ ipcMain.handle('pty:create', async (e, { id, shellId, cols, rows, cwd, init, sco
   return { shellId: def.id, label: def.label };
 });
 ipcMain.handle('pty:attach', (e, { id, cols, rows }) => { own(id, e.sender); return ptyHost.attach(id, cols, rows); });
-ipcMain.on('pty:detach', (e, id) => owners.get(id)?.delete(e.sender));
+ipcMain.on('pty:detach', (e, id) => { owners.get(id)?.delete(e.sender); terminalFlow.detach(e.sender.id, id); });
+ipcMain.on('pty:ack', (e, id, token) => terminalFlow.consumed(id, token, e.sender.id));
 // Nettoyage des terminaux orphelins : on garde aussi ceux des autres fenêtres du même workspace
-function sessionsOfState(file) {
-  const st = readJson(file, null);
+async function sessionsOfState(file) {
+  const st = await stateStore.read(file, null);
   return (st?.spaces || []).flatMap((sp) => (sp.tabs || []).map((t) => t.sessionId).filter(Boolean));
 }
-ipcMain.on('pty:gc', (e, scope, keep) => {
+ipcMain.on('pty:gc', async (e, scope, keep) => {
   const me = ctxOf(e);
   const all = new Set(keep || []);
   for (const w of windows.values()) {
     if (w.win.webContents.id === e.sender.id || !sameWs(w.ws, me.ws)) continue;
-    for (const id of sessionsOfState(statePath(w.ws, w.winId))) all.add(id);
+    for (const id of await sessionsOfState(statePath(w.ws, w.winId))) all.add(id);
   }
   for (const [id, set] of owners) for (const wc of set) if (wc.id !== e.sender.id && !wc.isDestroyed()) all.add(id);
   // Fenêtres secondaires mémorisées mais pas encore rouvertes
-  for (const w of readJson(windowsFile(), [])) if (sameWs(w.ws, me.ws) && w.winId && w.winId !== me.winId) for (const id of sessionsOfState(statePath(w.ws, w.winId))) all.add(id);
+  for (const w of readJson(windowsFile(), [])) if (sameWs(w.ws, me.ws) && w.winId && w.winId !== me.winId) for (const id of await sessionsOfState(statePath(w.ws, w.winId))) all.add(id);
   ptyHost.send({ t: 'gc', scope: scope || '', keep: [...all] }).catch(() => {});
 });
 ipcMain.on('pty:write', (_e, id, data) => { ptyHost.send({ t: 'write', id, data }).catch(() => {}); });
 ipcMain.on('pty:resize', (_e, id, cols, rows) => { ptyHost.send({ t: 'resize', id, cols, rows }).catch(() => {}); });
-ipcMain.on('pty:kill', (_e, id) => { owners.delete(id); ptyHost.send({ t: 'kill', id }).catch(() => {}); });
+ipcMain.on('pty:kill', (_e, id) => {
+  for (const wc of owners.get(id) || []) terminalFlow.detach(wc.id, id);
+  owners.delete(id);
+  ptyHost.send({ t: 'kill', id }).catch(() => {});
+});
 
 // ---------- Presse-papiers ----------
 ipcMain.handle('clip:read', () => clipboard.readText());
@@ -414,8 +437,18 @@ ipcMain.handle('skills:install', (e, options) => {
 });
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 const statePathFor = (e) => { const { ws, winId } = ctxOf(e); return statePath(ws, winId || 'main'); };
-ipcMain.handle('state:load', (e) => readJson(statePathFor(e), null));
-ipcMain.on('state:save', (e, state) => { if (!ctxOf(e).closed) writeJson(statePathFor(e), state); });
+ipcMain.handle('state:load', (e) => stateStore.read(statePathFor(e), null));
+ipcMain.on('state:save', (e, state) => {
+  const entry = windows.get(e.sender.id);
+  if (entry && !entry.closed) stateStore.save(statePathFor(e), state);
+});
+// beforeunload cannot await invoke: acknowledge only after the async replacement.
+ipcMain.on('state:saveFinal', async (e, state) => {
+  const entry = windows.get(e.sender.id);
+  if (!entry || entry.closed) { e.returnValue = false; return; }
+  try { e.returnValue = await stateStore.write(statePathFor(e), state); }
+  catch (error) { console.error('[state]', error); e.returnValue = false; }
+});
 ipcMain.handle('settings:load', () => readJson(dataFile('settings.json'), null));
 ipcMain.on('settings:save', (_e, s) => {
   // Les réglages d'accès à distance (jeton…) sont gérés ici, pas par la fenêtre
@@ -425,7 +458,8 @@ ipcMain.on('settings:save', (_e, s) => {
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.on('app:titlebar', (e, color, symbolColor) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  try { win?.setTitleBarOverlay({ color, symbolColor }); win?.setBackgroundColor(color); } catch {}
+  if (process.platform !== 'darwin') win?.setTitleBarOverlay({ color, symbolColor });
+  win?.setBackgroundColor(color);
 });
 
 // ---------- Workspaces ----------
@@ -495,16 +529,15 @@ ipcMain.on('win:closeNow', (e, returnState) => {
     const main = findWindow(me.ws, 'main');
     if (main) sendSpaces(main, returnState);
     else {
-      const st = readJson(statePath(me.ws, 'main'), null) || { version: 2, spaces: [] };
-      st.pendingSpaces = [...(st.pendingSpaces || []), returnState];
-      writeJson(statePath(me.ws, 'main'), st);
+      stateStore.update(statePath(me.ws, 'main'), (st) => ({
+        ...st, pendingSpaces: [...(st.pendingSpaces || []), returnState],
+      }), { version: 2, spaces: [] });
       createWindow({ ws: me.ws });
     }
   }
   me.closed = true;
-  try { fs.unlinkSync(statePath(me.ws, me.winId)); } catch {}
+  stateStore.remove(statePath(me.ws, me.winId));
   me.closeOk = true;
-  windows.delete(e.sender.id);
   rememberWindows();
   me.win.close();
 });
@@ -608,7 +641,7 @@ function createSplash() {
     backgroundColor: '#0e1117', icon: ICON_ICO, title: APP_NAME, show: false,
     webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, nodeIntegration: false },
   });
-  splash.removeMenu();
+  if (process.platform !== 'darwin') splash.removeMenu();
   splash.once('ready-to-show', () => splash.show());
   splash.on('closed', () => { splash = null; });
   splash.loadFile(path.join(__dirname, 'renderer', 'splash.html'));
@@ -657,16 +690,23 @@ ipcMain.handle('splash:create', (_e, root, name) => {
   leaveSplash(() => createWindow({ ws: root }));
   return true;
 });
-ipcMain.on('splash:forget', (_e, root) => writeJson(dataFile('recent.json'), recent().filter((p) => p.toLowerCase() !== String(root).toLowerCase())));
+ipcMain.on('splash:forget', (_e, root) => writeJson(dataFile('recent.json'), recent().filter((p) => !sameWs(p, root))));
 ipcMain.on('splash:reveal', (_e, root) => { if (root && exists(root)) shell.openPath(root); });
 ipcMain.on('splash:setShow', (_e, show) => {
   const s = readJson(dataFile('settings.json'), {}) || {};
   writeJson(dataFile('settings.json'), { ...s, showSplash: !!show });
 });
-ipcMain.on('splash:quit', () => { if (splash && !splash.isDestroyed()) splash.close(); });
+ipcMain.on('splash:quit', () => app.quit());
 ipcMain.on('splash:minimize', () => splash?.minimize());
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    const { Menu } = require('electron');
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' },
+    ]));
+    app.dock?.setIcon(ICON_ICO);
+  }
   speech.start().catch((error) => { console.error('[speech]', error); dialog.showErrorBox('robot-say', error.message); });
   applyRemote().catch(() => {});
   relay.start();
@@ -675,4 +715,11 @@ app.whenReady().then(() => {
   else createSplash();
 });
 app.on('before-quit', () => { quitting = true; speech.stop(); speechVoice.stop(); remote.stop(); relay.stop(true); if (windows.size) rememberWindows(); Prisma.closeAll(); Graphify.stopAll(); });
-app.on('window-all-closed', () => app.quit());
+let stateQuitReady = false;
+app.on('will-quit', (event) => {
+  if (stateQuitReady || !stateStore.files.size) return;
+  event.preventDefault();
+  stateStore.flush().then(() => { stateQuitReady = true; app.quit(); });
+});
+app.on('activate', () => { if (!windows.size && !splash) createSplash(); });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

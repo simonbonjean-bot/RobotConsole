@@ -4,9 +4,12 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const { pathKey } = require('./platform');
 
 const IMAGE_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.bmp': 'image/bmp' };
 const IMAGE_MAX = 15 * 1024 * 1024;
+const DOCUMENT_MAX = 30 * 1024 * 1024;
+const LIST_CONCURRENCY = 16;
 
 function git(cwd, args) {
   return new Promise((resolve) => {
@@ -17,21 +20,27 @@ function git(cwd, args) {
 }
 
 async function list(dir, { showHidden } = {}) {
-  const ents = await fsp.readdir(dir, { withFileTypes: true });
-  const out = [];
-  for (const e of ents) {
-    if (e.name === '.git') continue;
-    if (!showHidden && e.name.startsWith('.')) continue;
-    const p = path.join(dir, e.name);
-    let isDir = e.isDirectory();
-    let size = 0, mtime = 0;
-    try {
-      const st = await fsp.stat(p);
-      isDir = st.isDirectory();
-      size = st.size; mtime = st.mtimeMs;
-    } catch { /* lien cassé, fichier verrouillé… */ }
-    out.push({ name: e.name, path: p, isDir, size, mtime });
-  }
+  const ents = (await fsp.readdir(dir, { withFileTypes: true }))
+    .filter((e) => e.name !== '.git' && (showHidden || !e.name.startsWith('.')));
+  const out = new Array(ents.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(LIST_CONCURRENCY, ents.length) }, async () => {
+    while (next < ents.length) {
+      const i = next++, e = ents[i];
+      const p = path.join(dir, e.name);
+      let isDir = e.isDirectory(), size = 0;
+      // La vue distante utilise la taille des fichiers ; les dossiers n'ont besoin
+      // que du Dirent. stat suit aussi les liens vers un dossier (dont les jonctions).
+      if (!isDir) {
+        try {
+          const st = await fsp.stat(p);
+          isDir = st.isDirectory();
+          if (!isDir) size = st.size;
+        } catch { /* lien cassé, fichier verrouillé… */ }
+      }
+      out[i] = { name: e.name, path: p, isDir, size };
+    }
+  }));
   out.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   return out;
 }
@@ -40,6 +49,14 @@ async function read(file, maxBytes = 1024 * 1024) {
   const st = await fsp.stat(file);
   const ext = path.extname(file).toLowerCase();
   const base = { size: st.size, mtime: st.mtimeMs };
+  if (ext === '.pdf' || ext === '.docx') {
+    if (st.size > DOCUMENT_MAX) throw new Error('Document trop gros pour être affiché (> 30 Mo)');
+    const buf = await fsp.readFile(file);
+    if (ext === '.pdf') return { ...base, kind: 'pdf', dataUrl: `data:application/pdf;base64,${buf.toString('base64')}` };
+    // shortcut: rendu sémantique du DOCX, utiliser Word pour la mise en page exacte.
+    const result = await require('mammoth').convertToHtml({ buffer: buf }, { externalFileAccess: false });
+    return { ...base, kind: 'docx', html: result.value };
+  }
   if (IMAGE_EXT[ext] && st.size <= IMAGE_MAX) {
     const buf = await fsp.readFile(file);
     return { ...base, kind: 'image', dataUrl: `data:${IMAGE_EXT[ext]};base64,${buf.toString('base64')}` };
@@ -56,10 +73,26 @@ async function read(file, maxBytes = 1024 * 1024) {
   }
 }
 
-async function status(dir) {
+const statusPending = new Map();
+const rootPending = new Map();
+function status(dir) {
+  const key = path.resolve(dir);
+  if (!rootPending.has(key)) {
+    const pending = repoStatus(dir).finally(() => rootPending.delete(key));
+    rootPending.set(key, pending);
+  }
+  return rootPending.get(key);
+}
+async function repoStatus(dir) {
   const top = await git(dir, ['rev-parse', '--show-toplevel']);
   if (!top) return { isRepo: false };
   const repoRoot = path.resolve(top.trim());
+  if (!statusPending.has(repoRoot)) {
+    statusPending.set(repoRoot, readStatus(repoRoot).finally(() => statusPending.delete(repoRoot)));
+  }
+  return statusPending.get(repoRoot);
+}
+async function readStatus(repoRoot) {
   const out = await git(repoRoot, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all']);
   if (out == null) return { isRepo: false };
   const parts = out.split('\0');
@@ -106,10 +139,10 @@ const watchers = new Map();
 function watch(id, root, wc, opts = {}) {
   unwatch(id);
   let timer = null;
-  const only = opts.name ? String(opts.name).toLowerCase() : null;
+  const only = opts.name ? pathKey(opts.name) : null;
   try {
     const w = fs.watch(root, { recursive: !only }, (_ev, name) => {
-      if (only && (!name || String(name).toLowerCase() !== only)) return;
+      if (only && (!name || pathKey(String(name)) !== only)) return;
       // Dans .git, seuls HEAD et refs/ comptent (commit, changement de branche) :
       // on ignore index, objets, verrous… que « git status » touche lui-même.
       if (name && /(^|[\\/])\.git([\\/]|$)/.test(name) && !/\.git[\\/](HEAD|refs[\\/])/.test(name)) return;
@@ -158,7 +191,10 @@ function register() {
   });
   ipcMain.handle('fs:mkdir', (_e, dir) => fsp.mkdir(dir, { recursive: false }));
   ipcMain.handle('fs:rename', async (_e, from, to) => {
-    if (fs.existsSync(to) && from.toLowerCase() !== to.toLowerCase()) throw new Error('Un élément porte déjà ce nom');
+    if (fs.existsSync(to) && pathKey(from) !== pathKey(to)) {
+      const [source, target] = await Promise.all([fsp.realpath(from), fsp.realpath(to)]);
+      if (source !== target) throw new Error('Un élément porte déjà ce nom');
+    }
     await fsp.rename(from, to);
   });
   ipcMain.handle('fs:trash', (_e, p) => shell.trashItem(p));

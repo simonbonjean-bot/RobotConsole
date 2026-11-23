@@ -22,6 +22,7 @@ function setup() {
     },
   };
   const context = vm.createContext({ window: { api }, TextEncoder });
+  context.Platform = require('../shared/platform')('win32');
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'renderer', 'editor.js'), 'utf8'), context);
   context.Editor = context.window.Editor;
   context.Settings = { data: {} };

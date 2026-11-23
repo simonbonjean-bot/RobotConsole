@@ -31,18 +31,19 @@ test('Live speech is restricted to robots shared by the sending window', () => {
   assert.equal(messages.length, 0);
 });
 
-test('Complete history is scoped to an authorized robot, including robots without tabs', async () => {
+test('Paginated history is scoped to an authorized robot, including robots without tabs', async () => {
   const requested = [];
   const entries = Array.from({ length: 205 }, (_, i) => ({ rid: 'read', text: `Message ${i}` }));
-  const { remote, socket, messages } = harness((rid) => { requested.push(rid); return entries; });
-  await remote._handle(socket, { t: 'speechHistory', wcId: 1, key: 'read', req: 1 });
+  const { remote, socket, messages } = harness((rid, options) => { requested.push([rid, options]); return { entries, nextCursor: 'older' }; });
+  await remote._handle(socket, { t: 'speechHistory', wcId: 1, key: 'read', cursor: 'previous', limit: 50, req: 1 });
   assert.deepEqual(messages[0].result.entries, entries);
+  assert.equal(messages[0].result.nextCursor, 'older');
   for (const [wcId, key] of [[1, 'private'], [2, 'read'], [1, 'missing']]) {
     await remote._handle(socket, { t: 'speechHistory', wcId, key, req: 2 });
     assert.ok(messages.at(-1).result.error);
     assert.equal(messages.at(-1).result.entries, undefined);
   }
-  assert.deepEqual(requested, ['read']);
+  assert.deepEqual(requested, [['read', { cursor: 'previous', limit: 50 }]]);
 });
 
 test('History cannot be delivered after sharing is revoked while reading', async () => {

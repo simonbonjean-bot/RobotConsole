@@ -4,9 +4,9 @@
   const byWatchId = new Map();
 
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const norm = (p) => p.replace(/[\\/]+$/, '').toLowerCase();
+  const norm = (p) => Platform.pathKey(p);
   const sep = (p) => (p.includes('\\') ? '\\' : '/');
-  const parent = (p) => { const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')); return i > 0 ? p.slice(0, i) : p; };
+  const parent = (p) => Platform.parentPath(p);
   const baseName = (p) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
   const extOf = (p) => { const n = baseName(p); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; };
 
@@ -82,7 +82,7 @@
       ex.preview.tabIndex = -1; // un clic dans l'aperçu lui donne le focus (pour Ctrl+F)
       // Ctrl+F / Ctrl+H dans l'aperçu d'un fichier : passe en édition avec la recherche ouverte
       ex.preview.addEventListener('keydown', async (e) => {
-        if (!e.ctrlKey || e.altKey || e.shiftKey || ex.editor || !ex.selected || ex.selectedIsDir) return;
+        if (!Platform.primary(e) || e.altKey || e.shiftKey || ex.editor || !ex.selected || ex.selectedIsDir) return;
         const k = e.key.toLowerCase();
         if (k !== 'f' && k !== 'h') return;
         if (!ex.preview.querySelector('.pv-head .pv-edit')) return; // fichier non modifiable (image, binaire…)
@@ -108,7 +108,7 @@
         ex.tree.classList.remove('drop-root');
         if (!dragPath || e.target.closest('.ex-row')) return;
         e.preventDefault();
-        moveTo(tab, dragPath, ex.root, e.ctrlKey);
+        moveTo(tab, dragPath, ex.root, Platform.copyModifier(e));
       });
       split.addEventListener('mousedown', (e) => dragSplit(tab, e, split));
 
@@ -116,13 +116,14 @@
       setRoot(tab, ex.root, true);
     },
 
-    activate(tab) { tab.ex.editor?.layout(); },
+    activate(tab) { if (tab.ex.refreshNeeded) refresh(tab); tab.ex.editor?.layout(); },
     focus(tab) { (tab.ex.editor || tab.ex.tree).focus(); },
-    resize(tab) { tab.ex.editor?.layout(); },
+    resize(tab) { if (tab.ex.refreshNeeded) refresh(tab); tab.ex.editor?.layout(); },
 
     async canClose(tab) { return confirmLeaveEditor(tab); },
 
     dispose(tab) {
+      tab.ex.disposed = true;
       api.unwatch(tab.id);
       byWatchId.delete(tab.id);
       tab.ex.editor?.dispose();
@@ -142,6 +143,7 @@
     remoteReadActions: ['cd', 'up', 'view', 'diff', 'view:changes', 'view:tree'],
     async remoteSnapshot(tab) {
       const ex = tab.ex;
+      if (ex.refreshNeeded) await loadGit(tab);
       const dir = inRoot(ex, ex.remoteDir) ? ex.remoteDir : ex.root;
       const rel = dir.length > ex.root.length ? dir.slice(ex.root.length).replace(/^[\\/]+/, '') : '';
       const GS = { M: 'warn', A: 'ok', U: 'ok', D: 'bad', R: 'warn', C: 'bad' };
@@ -240,18 +242,64 @@
   async function listDir(tab, dir) {
     const key = norm(dir);
     if (!tab.ex.cache.has(key)) {
+      const root = tab.ex.root;
       let entries = [];
       try { entries = await api.listDir(dir, { showHidden: Settings.data.showHidden }); } catch { /* accès refusé */ }
-      tab.ex.cache.set(key, entries);
+      if (!tab.ex.disposed && root === tab.ex.root) tab.ex.cache.set(key, entries);
+      return entries;
     }
     return tab.ex.cache.get(key);
   }
 
-  async function refresh(tab, full) {
+  function refresh(tab, full) {
     const ex = tab.ex;
+    ex.refreshNeeded = true;
+    ex.refreshFull ||= full;
+    if (ex.refreshing) return ex.refreshing;
+    if (ex.disposed || !tab.pane.offsetParent) return Promise.resolve();
+    ex.refreshing = (async () => {
+      while (ex.refreshNeeded && !ex.disposed && tab.pane.offsetParent) {
+        const clear = ex.refreshFull;
+        ex.refreshNeeded = ex.refreshFull = false;
+        await refreshOnce(tab, clear);
+      }
+    })().catch((err) => console.error('[explorer]', err)).finally(() => { ex.refreshing = null; });
+    return ex.refreshing;
+  }
+
+  async function refreshOnce(tab, full) {
+    const ex = tab.ex;
+    const root = ex.root;
     if (full) ex.cache.clear();
     const prevCount = ex.git?.isRepo ? Object.keys(ex.git.files).length : -1;
-    try { ex.git = await api.gitStatus(ex.root); } catch { ex.git = { isRepo: false }; }
+    if (!await loadGit(tab)) return;
+    if (!tab.pane.offsetParent) { ex.refreshNeeded = true; return; }
+    // Précharge les dossiers dépliés
+    for (const d of ex.expanded) await listDir(tab, d === norm(ex.root) ? ex.root : d);
+    if (ex.disposed || root !== ex.root) return;
+    if (!tab.pane.offsetParent) { ex.refreshNeeded = true; return; }
+    await render(tab);
+    if (ex.disposed || root !== ex.root) return;
+
+    const count = ex.git.isRepo ? Object.keys(ex.git.files).length : 0;
+    if (!ex.greeted) {
+      ex.greeted = true;
+      if (ex.git.isRepo) CAI.say(tab.space, count ? `${count} fichier${count > 1 ? 's' : ''} modifié${count > 1 ? 's' : ''} sur ${ex.git.branch}` : `Tout est propre sur ${ex.git.branch} ✨`);
+      else CAI.say(tab.space, `J'explore « ${baseName(ex.root)} » !`);
+    } else if (prevCount >= 0 && count !== prevCount) {
+      CAI.say(tab.space, `${count} fichier${count > 1 ? 's' : ''} modifié${count > 1 ? 's' : ''}`, 1600);
+    }
+    // L'éditeur surveille lui-même son fichier.
+    if (!ex.editor && ex.selected && !ex.selectedIsDir) await showPreview(tab, ex.selected, true);
+  }
+
+  async function loadGit(tab) {
+    const ex = tab.ex;
+    const root = ex.root;
+    let git;
+    try { git = await api.gitStatus(root); } catch { git = { isRepo: false }; }
+    if (ex.disposed || root !== ex.root) return false;
+    ex.git = git;
     ex.gitMap = new Map();
     ex.dirty = new Set();
     if (ex.git.isRepo) {
@@ -263,26 +311,13 @@
         while (d.length >= top.length && !ex.dirty.has(d)) { ex.dirty.add(d); const nd = parent(d); if (nd === d) break; d = nd; }
       }
     }
-    // Précharge les dossiers dépliés
-    for (const d of ex.expanded) await listDir(tab, d === norm(ex.root) ? ex.root : d);
-    await render(tab);
-
-    const count = ex.git.isRepo ? Object.keys(ex.git.files).length : 0;
-    if (!ex.greeted) {
-      ex.greeted = true;
-      if (ex.git.isRepo) CAI.say(tab.space, count ? `${count} fichier${count > 1 ? 's' : ''} modifié${count > 1 ? 's' : ''} sur ${ex.git.branch}` : `Tout est propre sur ${ex.git.branch} ✨`);
-      else CAI.say(tab.space, `J'explore « ${baseName(ex.root)} » !`);
-    } else if (prevCount >= 0 && count !== prevCount) {
-      CAI.say(tab.space, `${count} fichier${count > 1 ? 's' : ''} modifié${count > 1 ? 's' : ''}`, 1600);
-    }
-    // Actualise l'aperçu si le fichier affiché a changé
-    // (l'éditeur surveille lui-même son fichier et affiche une bande d'avertissement)
-    if (!ex.editor && ex.selected && !ex.selectedIsDir) showPreview(tab, ex.selected, true);
+    return true;
   }
 
   // ---------- Rendu de l'arbre ----------
   async function render(tab) {
     const ex = tab.ex;
+    const root = ex.root;
     const g = ex.git || {};
     ex.btnTree.classList.toggle('active', ex.view === 'tree');
     ex.btnChanges.classList.toggle('active', ex.view === 'changes');
@@ -312,6 +347,7 @@
     } else {
       await addChildren(tab, frag, ex.root, 0);
     }
+    if (ex.disposed || root !== ex.root || !tab.pane.offsetParent) { ex.refreshNeeded = !ex.disposed; return; }
     const scroll = ex.tree.scrollTop;
     ex.tree.innerHTML = '';
     ex.tree.appendChild(frag);
@@ -359,10 +395,10 @@
     }
     if (e.isDir) {
       r.addEventListener('dragover', (ev) => {
-        if (!dragPath || norm(dragPath) === norm(e.path) || norm(e.path).startsWith(norm(dragPath) + '\\')) return;
+        if (!dragPath || Platform.withinPath(e.path, dragPath)) return;
         ev.preventDefault();
         ev.stopPropagation();
-        ev.dataTransfer.dropEffect = ev.ctrlKey ? 'copy' : 'move';
+        ev.dataTransfer.dropEffect = Platform.copyModifier(ev) ? 'copy' : 'move';
         r.classList.add('drop-into');
       });
       r.addEventListener('dragleave', () => r.classList.remove('drop-into'));
@@ -371,7 +407,7 @@
         if (!dragPath) return;
         ev.preventDefault();
         ev.stopPropagation();
-        moveTo(tab, dragPath, e.path, ev.ctrlKey);
+        moveTo(tab, dragPath, e.path, Platform.copyModifier(ev));
       });
     }
     ex.rows.push({ el: r, e });
@@ -411,10 +447,10 @@
     else if (e.key === 'Enter' && cur) { if (cur.isDir) select(tab, cur); else editFile(tab, cur.path); }
     else if (e.key === 'F2' && cur) renameItem(tab, cur.path);
     else if (e.key === 'Delete' && cur) deleteItem(tab, cur.path);
-    else if (e.ctrlKey && k === 'c' && cur) setClip(tab, cur.path, false);
-    else if (e.ctrlKey && k === 'x' && cur) setClip(tab, cur.path, true);
-    else if (e.ctrlKey && k === 'v' && clip) pasteInto(tab, cur ? (cur.isDir ? cur.path : parent(cur.path)) : ex.root);
-    else if (e.ctrlKey && k === 'd' && cur) duplicate(tab, cur.path);
+    else if (Platform.primary(e) && k === 'c' && cur) setClip(tab, cur.path, false);
+    else if (Platform.primary(e) && k === 'x' && cur) setClip(tab, cur.path, true);
+    else if (Platform.primary(e) && k === 'v' && clip) pasteInto(tab, cur ? (cur.isDir ? cur.path : parent(cur.path)) : ex.root);
+    else if (Platform.primary(e) && k === 'd' && cur) duplicate(tab, cur.path);
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -495,7 +531,7 @@
       { label: 'Ouvrir un terminal ici', icon: '>_', action: () => CAI.openTab(tab.space, { kind: 'terminal', cwd: ex.root }) },
       { label: 'Changer de dossier…', icon: '📂', action: async () => { const p = await api.pickFolder(ex.root); if (p) setRoot(tab, p); } },
       { label: 'Dossier parent', icon: '⤴', disabled: parent(ex.root) === ex.root, action: () => setRoot(tab, parent(ex.root)) },
-      { label: "Ouvrir dans l'Explorateur Windows", icon: '↗', action: () => api.openPath(ex.root) },
+      { label: 'Ouvrir dans le gestionnaire de fichiers', icon: '↗', action: () => api.openPath(ex.root) },
       { label: 'Ajouter aux favoris', icon: '⭐', action: () => addFavorite(ex.root) },
       { label: 'Copier le chemin', icon: '⧉', action: () => copyText(ex.root) },
     ];
@@ -521,7 +557,7 @@
   async function newItem(tab, dir, isDir) {
     const name = await UI.prompt(isDir ? 'Nouveau dossier' : 'Nouveau fichier', '', { placeholder: isDir ? 'nom-du-dossier' : 'nom.ext  (ou sous/dossier/nom.ext)', ok: 'Créer' });
     if (!name?.trim()) return;
-    const target = dir.replace(/[\\/]+$/, '') + '\\' + name.trim().replace(/\//g, '\\');
+    const target = Platform.joinPath(dir, name.trim());
     try {
       if (isDir) await api.mkdir(target); else await api.createFile(target);
       tab.ex.expanded.add(norm(dir));
@@ -537,7 +573,7 @@
     const dot = name.lastIndexOf('.');
     const v = await UI.prompt('Renommer', name, { ok: 'Renommer', select: dot > 0 ? dot : undefined });
     if (!v || v === name) return;
-    const to = parent(p) + '\\' + v;
+    const to = Platform.joinPath(parent(p), v);
     try {
       await api.rename(p, to);
       if (tab.ex.selected && norm(tab.ex.selected) === norm(p)) tab.ex.selected = to;
@@ -589,6 +625,10 @@
 
   // ---------- Édition (Monaco dans le panneau d'aperçu) ----------
   async function editFile(tab, file) {
+    try {
+      const info = await api.readFile(file, 8192);
+      if (info.kind !== 'text') { CAI.openFile(tab.space, file); return; }
+    } catch (e) { CAI.openFile(tab.space, file); return; }
     const ex = tab.ex;
     if (ex.editor && norm(ex.editor.file) === norm(file)) { ex.editor.focus(); return; }
     if (!(await confirmLeaveEditor(tab))) return;
@@ -734,8 +774,8 @@
       const dims = CAI.h('div', 'pv-dims');
       img.onload = () => { dims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`; };
       body.append(img, dims);
-    } else if (info.kind === 'binary') {
-      body.innerHTML = `<div class="pv-empty">Fichier binaire (${fmtSize(info.size)})<br><small>Double-cliquez dans l'arbre pour l'ouvrir avec son application.</small></div>`;
+    } else if (info.kind !== 'text') {
+      FilePreview.render(body, file, info);
     } else if (isMd && !ex.mdSource) {
       body.classList.add('pv-md');
       body.innerHTML = DOMPurify.sanitize(marked.parse(info.content));

@@ -8,6 +8,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const Workspace = require('./workspace');
+const { pathKey } = require('./platform');
+const { unixSnapshot } = require('./system-snapshot');
 
 const PROBE_MS = 4000;
 
@@ -20,7 +22,7 @@ class Services {
     this.timer = null;
   }
 
-  scope(root) { return 'svc:' + root.toLowerCase(); }
+  scope(root) { return 'svc:' + pathKey(root); }
 
   defsOf(root) {
     const data = Workspace.readJson(Workspace.file(root, 'services.json'), { services: [] });
@@ -189,6 +191,7 @@ class Services {
     for (const [id, st] of running) {
       const sess = byId.get(st.sessionId);
       if (sess) st.pid = sess.pid;
+      st.probeError = sys?.error || '';
       if (!st.pid || !sys) continue;
       const tree = descendants(st.pid, sys.procs);
       st.procs = tree.size;
@@ -238,9 +241,14 @@ function descendants(pid, procs) {
 // Une seule requête système partagée (processus + ports TCP en écoute), mise en cache 2 s
 let sysCache = null, sysAt = 0, sysPending = null;
 function systemSnapshot() {
-  if (process.platform !== 'win32') return Promise.resolve(null);
   if (sysCache && Date.now() - sysAt < 2000) return Promise.resolve(sysCache);
   if (sysPending) return sysPending;
+  if (process.platform !== 'win32') {
+    sysPending = unixSnapshot().catch((error) => ({ procs: [], mem: new Map(), listen: [], error: error.message }))
+      .then((snapshot) => { sysCache = snapshot; sysAt = Date.now(); return snapshot; })
+      .finally(() => { sysPending = null; });
+    return sysPending;
+  }
   const script = '$p = Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId),$($_.ParentProcessId),$($_.WorkingSetSize)" }; ' +
     '$l = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object { "$($_.LocalPort),$($_.OwningProcess)" }; ' +
     '"P"; $p; "L"; $l';

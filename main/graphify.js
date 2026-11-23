@@ -7,6 +7,7 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
+const { killTree } = require('./platform');
 
 const OUT = 'graphify-out';
 const ENV = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', NO_COLOR: '1', FORCE_COLOR: '0' };
@@ -108,11 +109,6 @@ const STEPS = {
   update: [['update', '.'], ['cluster-only', '.', '--no-label']],
   html: [['export', 'html']],
 };
-function killTree(child) {
-  if (!child || child.exitCode !== null) return;
-  if (process.platform === 'win32') execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
-  else child.kill('SIGTERM');
-}
 async function run(id, root, mode, onData, onEnd) {
   const v = await version();
   if (!v.ok) { onEnd({ ok: false, error: 'graphify introuvable' }); return; }
@@ -121,7 +117,7 @@ async function run(id, root, mode, onData, onEnd) {
   runs.set(id, r);
   const step = (args) => new Promise((resolve) => {
     onData(`\x1b[36m$ graphify ${args.join(' ')}\x1b[0m\n`);
-    const child = r.child = spawn(exe, args, { cwd: root, windowsHide: true, env: ENV });
+    const child = r.child = spawn(exe, args, { cwd: root, windowsHide: true, detached: process.platform !== 'win32', env: ENV });
     const pipe = (d) => onData(d.toString('utf8').replace(/\r\n/g, '\n'));
     child.stdout.on('data', pipe);
     child.stderr.on('data', pipe);

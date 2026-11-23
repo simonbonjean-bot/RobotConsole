@@ -54,25 +54,25 @@ test('external terminals require an unambiguous directory or explicit robot', (t
   assert.throws(() => speech.target({ cwd: root + '-sibling' }), /Aucun robot/);
 });
 
-test('history preserves Unicode, source, timestamps and robot separation across restart', (t) => {
+test('history preserves Unicode, source, timestamps and robot separation across restart', async (t) => {
   const { speech, root } = fixture(t);
-  speech.record({ rid: 'r1', name: 'One', text: "C'est terminé 🤖\nSuite", source: 'cli' });
-  speech.record({ rid: 'r2', name: 'Two', text: 'Other' });
+  await speech.record({ rid: 'r1', name: 'One', text: "C'est terminé 🤖\nSuite", source: 'cli' });
+  await speech.record({ rid: 'r2', name: 'Two', text: 'Other' });
   const restored = new Speech({ userData: root });
-  const history = restored.history('r1');
+  const history = await restored.history('r1');
   assert.equal(history.length, 1);
   assert.equal(history[0].text, "C'est terminé 🤖\nSuite");
   assert.equal(history[0].source, 'cli');
   assert.ok(Number.isFinite(Date.parse(history[0].at)));
   assert.throws(() => restored.record({ text: ' ' }), /Message vide/);
   fs.appendFileSync(speech.historyFile, 'invalid\n');
-  assert.throws(() => restored.history('r1'), SyntaxError, 'Damaged history must not be silently replaced');
+  await assert.rejects(restored.history('r1'), SyntaxError, 'Damaged history must not be silently replaced');
 });
 
 test('local transport acknowledges only after delivery and reports errors', async (t) => {
   const { speech, root } = fixture(t, async (target, text) => {
     if (text === 'fail') throw new Error('Persistence failed');
-    speech.record({ ...target, text, source: 'cli' });
+    await speech.record({ ...target, text, source: 'cli' });
   });
   speech.publish(1, [{ rid: 'r1', name: 'One', sessions: ['p1'], roots: [root] }]);
   await speech.start();
@@ -85,42 +85,42 @@ test('local transport acknowledges only after delivery and reports errors', asyn
   await assert.rejects(request(speech.pipe, { action: 'say', session: 'unknown', text: 'No' }), /Aucun robot/);
 });
 
-test('menu history includes all messages while CLI history remains bounded', (t) => {
+test('explicit complete history includes all messages while CLI history remains bounded', async (t) => {
   const { speech } = fixture(t);
-  for (let i = 0; i < 205; i++) speech.record({ rid: 'r1', name: 'One', text: `Message ${i}` });
-  const recent = speech.history('r1');
-  const all = speech.history('r1', null);
+  for (let i = 0; i < 205; i++) await speech.record({ rid: 'r1', name: 'One', text: `Message ${i}` });
+  const recent = await speech.history('r1');
+  const all = await speech.history('r1', null);
   assert.equal(recent.length, 200);
   assert.equal(recent[0].text, 'Message 5');
   assert.equal(all.length, 205);
   assert.equal(all[0].text, 'Message 0');
 });
 
-test('deleting one duplicate or all messages persists and preserves other robots', (t) => {
+test('deleting one duplicate or all messages persists and preserves other robots', async (t) => {
   const { speech, root } = fixture(t);
-  const first = speech.record({ rid: 'r1', text: 'Same' });
-  const second = speech.record({ rid: 'r1', text: 'Same' });
-  speech.record({ rid: 'r2', text: 'Other' });
+  const first = await speech.record({ rid: 'r1', text: 'Same' });
+  const second = await speech.record({ rid: 'r1', text: 'Same' });
+  await speech.record({ rid: 'r2', text: 'Other' });
   assert.notEqual(first.id, second.id);
-  assert.equal(speech.remove('r1', first.id), 1);
+  assert.equal(await speech.remove('r1', first.id), 1);
   const restored = new Speech({ userData: root });
-  assert.deepEqual(restored.history('r1').map((entry) => entry.id), [second.id]);
-  assert.throws(() => speech.remove('r2', second.id), /introuvable/);
-  assert.equal(speech.remove('r1'), 1);
-  assert.equal(restored.history('r1').length, 0);
-  assert.equal(restored.history('r2')[0].text, 'Other');
+  assert.deepEqual((await restored.history('r1')).map((entry) => entry.id), [second.id]);
+  await assert.rejects(speech.remove('r2', second.id), /introuvable/);
+  assert.equal(await speech.remove('r1'), 1);
+  assert.equal((await restored.history('r1')).length, 0);
+  assert.equal((await restored.history('r2'))[0].text, 'Other');
   assert.throws(() => speech.remove('', null), /invalide/);
 });
 
-test('legacy messages receive stable unique IDs before deletion', (t) => {
+test('legacy messages receive stable unique IDs before deletion', async (t) => {
   const { speech, root } = fixture(t);
   const legacy = { at: new Date().toISOString(), rid: 'r1', text: 'Same', source: 'cli' };
   fs.writeFileSync(speech.historyFile, JSON.stringify(legacy) + '\n' + JSON.stringify(legacy) + '\n');
-  const migrated = speech.history('r1');
+  const migrated = await speech.history('r1');
   assert.notEqual(migrated[0].id, migrated[1].id);
-  assert.deepEqual(new Speech({ userData: root }).history('r1'), migrated);
-  speech.remove('r1', migrated[0].id);
-  assert.equal(speech.history('r1')[0].id, migrated[1].id);
+  assert.deepEqual(await new Speech({ userData: root }).history('r1'), migrated);
+  await speech.remove('r1', migrated[0].id);
+  assert.equal((await speech.history('r1'))[0].id, migrated[1].id);
 });
 
 test('CLI subprocess connects with environment and returns nonzero for failures', async (t) => {
@@ -146,45 +146,43 @@ test('CLI subprocess connects with environment and returns nonzero for failures'
   assert.match(failure.stderr, /Aucun robot/);
 });
 
-test('Windows voice treats quotes and shell operators as text, not code', () => {
-  const text = "C'est terminé; $(Get-Process) \"🤖\"";
-  const selected = "Voice'; $(Get-Process)";
-  const command = voiceCommand(text, 70, 'win32', selected);
-  const script = Buffer.from(command.args.at(-1), 'base64').toString('utf16le');
-  assert.ok(!script.includes(text));
-  assert.ok(script.includes(Buffer.from(text, 'utf8').toString('base64')));
-  assert.ok(!script.includes(selected));
-  assert.ok(script.includes(Buffer.from(selected, 'utf8').toString('base64')));
-  assert.ok(script.indexOf('SelectVoice') < script.indexOf('.Speak'));
-  assert.ok(!Buffer.from(voiceCommand(text, 70, 'win32').args.at(-1), 'base64').toString('utf16le').includes('SelectVoice'));
-  assert.match(script, /Volume = 70/);
+test('eSpeak sends UTF-8 through stdin and restricts voice arguments', () => {
+  const text = "C'est terminé; $(Get-Process) 🤖";
+  const command = voiceCommand(text, 70, 'win32', 'espeak:fr+robosoft');
+  assert.match(command.file, /espeak-ng\.exe$/);
+  assert.ok(command.args.includes('--stdin'));
+  assert.ok(!command.args.includes(text));
+  assert.deepEqual(command.args.slice(-7), ['-b', '1', '-v', 'fr+robosoft', '-a', '70', '--stdin']);
+  assert.ok(voiceCommand(text, 70, 'win32', "Legacy Windows voice").args.includes('fr'));
+  assert.throws(() => voiceCommand(text, 70, 'win32', 'espeak:--help'), /indisponible/);
 });
 
-test('voice listing handles empty installations and rejects invalid responses', { skip: process.platform !== 'win32' }, async () => {
-  const { EventEmitter } = require('node:events');
-  const { PassThrough } = require('node:stream');
-  const children = [];
-  const voice = new SpeechVoice({ spawnProcess: () => {
-    const child = new EventEmitter();
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.kill = () => child.emit('close', null);
-    children.push(child);
-    return child;
-  } });
-  const empty = voice.listVoices();
-  children[0].stdout.write('[]');
-  children[0].emit('close', 0);
-  assert.deepEqual(await empty, { supported: true, voices: [] });
-  const invalid = voice.listVoices();
-  children[1].stdout.write('[{"id":123,"name":"Voice","language":"fr-FR"}]');
-  children[1].emit('close', 0);
-  await assert.rejects(invalid, /Liste des voix invalide/);
-  const failed = voice.listVoices();
-  children[2].stderr.write('Voice service unavailable');
-  children[2].emit('close', 1);
-  await assert.rejects(failed, /Voice service unavailable/);
-  voice.stop();
+test('voice list contains selectable eSpeak presets', { skip: process.platform !== 'win32' || !fs.existsSync(voiceCommand('', 70, 'win32').file) }, async () => {
+  const list = await new SpeechVoice().listVoices();
+  assert.equal(list.supported, true);
+  assert.ok(list.voices.length >= 4);
+  for (const voice of list.voices) {
+    assert.ok(voiceCommand('Bonjour', 50, 'win32', voice.id).args.includes(voice.id.slice(7)));
+  }
+});
+
+test('installed eSpeak generates distinct French robot timbres', { skip: process.platform !== 'win32' || !fs.existsSync(voiceCommand('', 70, 'win32').file) }, async (t) => {
+  const { root } = fixture(t);
+  const list = await new SpeechVoice().listVoices();
+  const audio = [];
+  for (const voice of list.voices) {
+    const command = voiceCommand('Bonjour, écoutons ce robot.', 70, 'win32', voice.id);
+    const output = path.join(root, `${audio.length}.wav`);
+    const result = spawnSync(command.file, [...command.args, '-w', output], {
+      input: 'Bonjour, écoutons ce robot.', encoding: 'utf8', windowsHide: true, timeout: 15000,
+    });
+    assert.equal(result.status, 0, result.stderr || String(result.error));
+    const wav = fs.readFileSync(output);
+    assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+    assert.ok(wav.length > 1000);
+    if (voice.language === 'fr') audio.push(wav.toString('base64'));
+  }
+  assert.equal(new Set(audio).size, 4, 'French timbres must produce different audio');
 });
 
 test('revoking speech permission stops playback and cancels queued messages', async () => {
@@ -193,6 +191,7 @@ test('revoking speech permission stops playback and cancels queued messages', as
   const voice = new SpeechVoice({ spawnProcess: () => {
     const child = new EventEmitter();
     child.stderr = new EventEmitter();
+    child.stdin = new (require('node:stream').PassThrough)();
     child.kill = () => child.emit('close', null);
     children.push(child);
     return child;
@@ -202,6 +201,7 @@ test('revoking speech permission stops playback and cancels queued messages', as
   const second = voice.speak('Queued', 70, () => allowed);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(children.length, 1);
+  if (process.platform === 'win32') assert.equal(children[0].stdin.read().toString('utf8'), 'First');
   allowed = false;
   voice.recheck();
   assert.deepEqual(await first, { cancelled: true });

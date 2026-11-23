@@ -58,15 +58,15 @@
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true;
         const k = e.key.toLowerCase();
-        if (e.ctrlKey && !e.altKey && !e.shiftKey && k === 'c' && term.hasSelection()) {
+        if (Platform.primary(e) && !e.altKey && !e.shiftKey && k === 'c' && term.hasSelection()) {
           api.writeClipboard(term.getSelection());
           term.clearSelection();
           return false;
         }
-        if (e.ctrlKey && !e.altKey && (k === 'v') ) { e.preventDefault(); Terminal_.paste(tab); return false; }
-        if (e.ctrlKey && e.shiftKey && k === 'c') { Terminal_.copy(tab); return false; }
+        if (Platform.primary(e) && !e.altKey && (k === 'v') ) { e.preventDefault(); Terminal_.paste(tab); return false; }
+        if (Platform.primary(e) && e.shiftKey && k === 'c') { Terminal_.copy(tab); return false; }
         if (e.shiftKey && !e.ctrlKey && e.key === 'Insert') { Terminal_.paste(tab); return false; }
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && k === 'f') { openSearch(tab); return false; }
+        if (Platform.primary(e) && !e.shiftKey && !e.altKey && k === 'f') { openSearch(tab); return false; }
         // Maj+Entrée : retour à la ligne sans valider (Claude Code et autres CLI interactifs reconnaissent Échap+Entrée)
         if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter') {
           e.preventDefault();
@@ -105,6 +105,7 @@
     dispose(tab) {
       if (tab.ptyId) { tabsByPty.delete(tab.ptyId); if (tab.attachOnly) api.detachPty(tab.ptyId); else api.kill(tab.ptyId); }
       tab.disposed = true;
+      clearTimeout(tab.reconnectTimer);
       disableGpu(tab);
       tab.term.dispose();
     },
@@ -135,9 +136,8 @@
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       if (tab.disposed) throw new Error('Terminal fermé');
-      const seq = tab.outputSeq;
       return new Promise((resolve) => tab.term.write('', () => resolve({
-        terminal: { id: tab.ptyId, seq, cols: tab.term.cols, rows: tab.term.rows, data: tab.serializer.serialize() },
+        terminal: { id: tab.ptyId, seq: tab.renderedSeq ?? tab.outputSeq, cols: tab.term.cols, rows: tab.term.rows, data: tab.serializer.serialize() },
       })));
     },
     remoteAction(tab, action) {
@@ -254,6 +254,11 @@
   }
 
   async function start(tab) {
+    tab.attachGeneration = (tab.attachGeneration || 0) + 1;
+    clearTimeout(tab.reconnectTimer);
+    tab.attaching = false;
+    tab.queue = null;
+    tab.replaying = false;
     if (tab.ptyId) { tabsByPty.delete(tab.ptyId); if (tab.attachOnly) api.detachPty(tab.ptyId); else api.kill(tab.ptyId); }
     tab.attachOnly = false;
     tab.exited = false;
@@ -263,6 +268,7 @@
     tabsByPty.set(tab.ptyId, tab);
     tab.term.reset();
     tab.outputSeq = 0;
+    tab.renderedSeq = 0;
     try {
       const res = await api.createPty({ id: tab.ptyId, shellId: tab.shellId, cols: tab.term.cols, rows: tab.term.rows, cwd: tab.cwd, init: tab.init, scope: CAI.scope });
       tab.shellId = res.shellId;
@@ -275,10 +281,12 @@
   // Reprend une session qui tourne toujours dans le service en arrière-plan
   // Rejoue la sortie conservée morceau par morceau, chacun à la taille où il a été produit
   // (sinon les lignes se coupent ailleurs et Claude Code / vim s'affichent en vrac)
-  function replaySegs(term, segs, data, done) {
-    if (!segs?.length) { term.write(data || '', done); return; }
+  function replaySegs(term, segs, data, done, current = () => true) {
+    if (!current()) return;
+    if (!segs?.length) { term.write(data || '', () => { if (current()) done?.(); }); return; }
     let i = 0;
     const next = () => {
+      if (!current()) return;
       if (i >= segs.length) return done?.();
       const g = segs[i++];
       if (g.cols && g.rows && (g.cols !== term.cols || g.rows !== term.rows)) term.resize(g.cols, g.rows);
@@ -288,11 +296,29 @@
   }
 
   async function attach(tab, sessionId) {
+    if (tab.attaching || tab.disposed) return;
+    tab.attaching = true;
+    const generation = tab.attachGeneration = (tab.attachGeneration || 0) + 1;
+    const current = () => !tab.disposed && tab.attachGeneration === generation && tab.ptyId === sessionId;
     tab.ptyId = sessionId;
     tabsByPty.set(sessionId, tab);
     tab.queue = [];
     let res = null;
-    try { res = await api.attachPty({ id: sessionId, cols: tab.term.cols, rows: tab.term.rows }); } catch {}
+    try { res = await api.attachPty({ id: sessionId, cols: tab.term.cols, rows: tab.term.rows }); }
+    catch (error) {
+      if (!current()) return;
+      tab.attaching = false;
+      for (const item of tab.queue || []) api.ackData?.(sessionId, item.token);
+      tab.queue = null;
+      if (!tab.disposed) {
+        console.error('[pty:attach]', error);
+        tab.term.write(`\r\n\x1b[31m${String(error.message)}\x1b[0m\r\n`);
+        tab.reconnectTimer = setTimeout(() => attach(tab, sessionId), 1000);
+      }
+      return;
+    }
+    if (!current()) { if (tab.disposed) api.detachPty(sessionId); return; }
+    tab.attaching = false;
     if (!res?.found) {
       tab.queue = null;
       // La session n'existe plus (redémarrage du PC…) : on relance un shell neuf
@@ -302,17 +328,25 @@
       return;
     }
     // Ce qui est arrivé avant la réponse fait déjà partie du rejeu ; on garde la suite pour après
+    for (const item of tab.queue) api.ackData?.(sessionId, item.token);
     tab.queue = [];
+    const replaySeq = tab.outputSeq;
     tab.replaying = true;
     const { cols, rows } = tab.term;
-    replaySegs(tab.term, res.segs, res.data, () => {
-      if (tab.term.cols !== cols || tab.term.rows !== rows) tab.term.resize(cols, rows);
-      tab.replaying = false;
-      if (res.alive && tab.ptyId) api.resize(tab.ptyId, tab.term.cols, tab.term.rows);
-      const queued = tab.queue || [];
-      tab.queue = null;
-      queued.forEach((d) => tab.term.write(d));
-      if (!res.alive) markExited(tab, res.exitCode, true);
+    tab.term.write('', () => {
+      if (!current()) return;
+      tab.term.reset();
+      replaySegs(tab.term, res.segs, res.data, () => {
+        if (!current()) return;
+        if (tab.term.cols !== cols || tab.term.rows !== rows) tab.term.resize(cols, rows);
+        tab.replaying = false;
+        tab.renderedSeq = replaySeq;
+        if (res.alive && tab.ptyId) api.resize(tab.ptyId, tab.term.cols, tab.term.rows);
+        const queued = tab.queue || [];
+        tab.queue = null;
+        queued.forEach((item) => writeOutput(tab, sessionId, item));
+        if (!res.alive) markExited(tab, res.exitCode, true);
+      }, current);
     });
   }
 
@@ -325,12 +359,20 @@
     if (!quiet) CAI.say(tab.space, code === 0 ? 'Mission accomplie !' : `Aïe, code ${code}…`);
   }
 
-  api.onData((pid, data, seq) => {
+  function writeOutput(tab, pid, item) {
+    tab.term.write(item.data, () => {
+      tab.renderedSeq = item.seq;
+      api.ackData?.(pid, item.token);
+    });
+  }
+
+  api.onData((pid, data, seq, token) => {
     const tab = tabsByPty.get(pid);
-    if (!tab) return;
+    if (!tab || tab.disposed) { api.ackData?.(pid, token); return; }
     tab.outputSeq = seq;
-    if (tab.queue) { tab.queue.push(data); return; }
-    tab.term.write(data);
+    const item = { data, seq, token };
+    if (tab.queue) { tab.queue.push(item); return; }
+    writeOutput(tab, pid, item);
     CAI.talk(tab.space);
     CAI.markUnread(tab);
   });
@@ -339,6 +381,16 @@
     const tab = tabsByPty.get(pid);
     if (!tab) return;
     markExited(tab, code);
+  });
+  api.onPtyDisconnect?.(() => {
+    for (const [id, tab] of tabsByPty) {
+      if (tab.disposed) continue;
+      tab.attachGeneration = (tab.attachGeneration || 0) + 1;
+      tab.attaching = false;
+      tab.queue = [];
+      clearTimeout(tab.reconnectTimer);
+      tab.reconnectTimer = setTimeout(() => attach(tab, id), 200);
+    }
   });
 
   (window.TabKinds = window.TabKinds || {}).terminal = Terminal_;

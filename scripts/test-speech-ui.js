@@ -10,7 +10,7 @@ if (!process.versions.electron) {
   try {
     const env = { ...process.env, RC_SPEECH_TEST_PROFILE: root };
     delete env.ELECTRON_RUN_AS_NODE;
-    const result = spawnSync(require('electron'), [__filename], { stdio: 'inherit', env });
+    const result = spawnSync(require('electron'), [__filename], { stdio: 'inherit', env, timeout: 60000 });
     if (result.error) throw result.error;
     status = result.status ?? 1;
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -42,7 +42,13 @@ app.whenReady().then(async () => {
           window.__records.push(entry); return entry;
         },
         speechVoice: async (...args) => { window.__voices.push(args); },
-        speechHistory: async (rid) => window.__records.filter((entry) => entry.rid === rid).map((entry) => ({ ...entry, at: new Date().toISOString() })),
+        speechHistory: async (rid, { cursor } = {}) => {
+          if (window.__historyError) throw new Error('Disk unavailable');
+          const records = window.__records.filter((entry) => entry.rid === rid);
+          const end = cursor === null || cursor === undefined ? records.length : Number(cursor);
+          const start = Math.max(0, end - 3);
+          return { entries: records.slice(start, end).map((entry) => ({ ...entry, at: new Date().toISOString() })), nextCursor: start ? String(start) : null };
+        },
         onSpeech: (callback) => { window.__receive = callback; },
         speechResult: (id, error) => { window.__results.push({ id, error }); }
       };
@@ -97,7 +103,20 @@ app.whenReady().then(async () => {
       const dialog = window.__history(window.__spaces[0]);
       await new Promise((resolve) => setTimeout(resolve, 30));
       check(!document.querySelector('.speech-history img'), 'History escapes message HTML');
+      check(document.querySelectorAll('.speech-history .speech-entry').length === 3, 'History initially shows one bounded page');
+      document.querySelector('.speech-older').click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      check(document.querySelectorAll('.speech-history .speech-entry').length === 6, 'Older messages load on demand');
       check(document.querySelector('.speech-history').textContent.includes('Hidden robot'), 'History includes hidden robot messages');
+      window.__historyError = true;
+      document.querySelector('.speech-older').click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      check(document.querySelector('.speech-history-status').textContent.includes('Disk unavailable'), 'Pagination errors are visible');
+      check(document.querySelectorAll('.speech-history .speech-entry').length === 6, 'Errors preserve already loaded messages');
+      window.__historyError = false;
+      document.querySelector('.speech-older').click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      check(document.querySelector('.speech-older').hidden, 'Pagination finishes and retry succeeds');
       document.querySelector('.dlg-actions .primary').click();
       await dialog;
       window.__spaces[0].el.style.display = '';

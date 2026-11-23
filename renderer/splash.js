@@ -158,8 +158,8 @@
       if (rowsEl[sel]) { e.preventDefault(); rowsEl[sel].click(); }
     } else if (e.key === 'Escape') {
       if ($('#sp-filter').value) { $('#sp-filter').value = ''; render(); } else window.splash.quit();
-    } else if ((e.ctrlKey && e.key.toLowerCase() === 'n')) { e.preventDefault(); newWorkspace('new'); }
-    else if ((e.ctrlKey && e.key.toLowerCase() === 'o')) { e.preventDefault(); newWorkspace('open'); }
-    else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && document.activeElement !== $('#sp-filter') && items.length) $('#sp-filter').focus();
+    } else if ((Platform.primary(e) && e.key.toLowerCase() === 'n')) { e.preventDefault(); newWorkspace('new'); }
+    else if ((Platform.primary(e) && e.key.toLowerCase() === 'o')) { e.preventDefault(); newWorkspace('open'); }
+    else if (e.key.length === 1 && !Platform.primary(e) && !e.altKey && document.activeElement !== $('#sp-filter') && items.length) $('#sp-filter').focus();
   });
 })();

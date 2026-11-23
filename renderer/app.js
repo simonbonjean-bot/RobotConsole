@@ -21,6 +21,7 @@
   let restoring = false;
   const nid = (p) => `${p}${++uid}-${Date.now().toString(36)}`;
   const kindOf = (tab) => TabKinds[tab.kind];
+  const serializeTab = (tab) => tab.mounted ? kindOf(tab).serialize(tab) : { ...tab.spec, ...(tab.kind === 'terminal' ? { sessionId: tab.ptyId || tab.spec.sessionId, attachOnly: tab.attachOnly } : {}) };
   const byId = (id) => spaces.find((s) => s.id === id);
 
   const PHRASES = [
@@ -50,7 +51,9 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 300);
   }
-  function saveNow() {
+  function saveNow(final = false) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
     if (restoring) return;
     syncScreen();
     const idx = (id) => spaces.findIndex((s) => s.id === id);
@@ -60,7 +63,7 @@
       activeScreen: screens.findIndex((sc) => sc.id === activeScreenId),
       screens: screens.map((sc) => ({ name: sc.name, color: sc.color || undefined, folded: sc.folded || undefined, layout: Layout.serialize(sc.tree, idx), maximized: sc.maximizedId ? idx(sc.maximizedId) : null })),
       spaces: spaces.map((sp) => ({ ...serializeSpace(sp), screen: Math.max(0, screens.findIndex((sc) => sc.id === sp.screenId)) })),
-    });
+    }, final);
   }
   function serializeSpace(sp) {
     return {
@@ -76,14 +79,14 @@
       parked: sp.parked || undefined,
       asleep: sp.asleep || undefined,
       activeTab: sp.tabs.indexOf(sp.activeTab),
-      tabs: sp.tabs.map((t) => ({ kind: t.kind, title: t.customTitle ? t.title : null, model: t.model || undefined, icon: t.icon || undefined, ...kindOf(t).serialize(t) })),
+      tabs: sp.tabs.map((t) => ({ ...serializeTab(t), kind: t.kind, title: t.customTitle ? t.title : null, model: t.model || undefined, icon: t.icon || undefined })),
     };
   }
   // Paquet d'espaces transférés vers une autre fenêtre
   function payloadFor(list) {
     return { version: 2, active: 0, maximized: null, layout: null, spaces: list.map((sp) => ({ ...serializeSpace(sp), parked: false })) };
   }
-  window.addEventListener('beforeunload', saveNow);
+  window.addEventListener('beforeunload', () => saveNow(true));
 
   // ---------- Robots ----------
   function applyBot(space) {
@@ -241,12 +244,61 @@
       `<div class="speech-entry">${deletable ? `<button class="tb-btn speech-delete" data-message-id="${esc(entry.id)}" title="${esc(I18n.t('Supprimer ce message'))}" aria-label="${esc(I18n.t('Supprimer ce message'))}">×</button>` : ''}<small>${esc(new Date(entry.at).toLocaleString())} · ${esc(entry.source)}</small><div data-no-i18n>${esc(entry.text)}</div></div>`).join('') : esc(I18n.t('Aucun message pour ce robot.'));
   }
 
+  function paginatedSpeechHistory(rid, list, deletable = false, changed = () => {}) {
+    const controls = h('div', 'speech-pagination');
+    const older = h('button', 'tb-btn speech-older', esc(I18n.t('Messages plus anciens')));
+    const refresh = h('button', 'tb-btn speech-refresh', esc(I18n.t('Actualiser les messages')));
+    const status = h('div', 'speech-history-status');
+    status.setAttribute('role', 'status');
+    controls.append(older, refresh, status);
+    list.after(controls);
+    let cursor = null, request = 0, count = 0, retryReset = true;
+    const load = async (reset = true) => {
+      if (!reset && !cursor) return;
+      const current = ++request;
+      older.disabled = refresh.disabled = true;
+      status.setAttribute('role', 'status');
+      status.textContent = I18n.t('Chargement des messages…');
+      list.setAttribute('aria-busy', 'true');
+      try {
+        const page = await api.speechHistory(rid, { cursor: reset ? null : cursor });
+        if (current !== request || !list.isConnected) return;
+        if (reset) { list.innerHTML = ''; count = 0; }
+        if (count === 0) list.innerHTML = '';
+        if (page.entries.length) list.insertAdjacentHTML('beforeend', speechHistoryContent(page.entries, deletable));
+        count += page.entries.length;
+        cursor = page.nextCursor;
+        if (!count && !cursor) list.textContent = I18n.t('Aucun message pour ce robot.');
+        older.hidden = !cursor;
+        older.textContent = I18n.t('Messages plus anciens');
+        retryReset = false;
+        status.textContent = '';
+        changed(count);
+      } catch (error) {
+        if (current !== request || !list.isConnected) return;
+        status.textContent = I18n.t("Impossible de lire l'historique : {0}", error.message);
+        status.setAttribute('role', 'alert');
+        retryReset = reset;
+        older.hidden = false;
+        older.textContent = I18n.t('Réessayer les messages');
+      } finally {
+        if (current === request) {
+          older.disabled = refresh.disabled = false;
+          list.setAttribute('aria-busy', 'false');
+        }
+      }
+    };
+    older.addEventListener('click', () => load(retryReset));
+    refresh.addEventListener('click', () => load());
+    return load;
+  }
+
   async function speechHistory(space) {
-    try {
-      const entries = await api.speechHistory(space.rid);
-      const content = speechHistoryContent(entries);
-      await UI.dialog({ title: I18n.t('Historique des paroles'), message: `<div class="speech-history">${content}</div>`, ok: 'Fermer' });
-    } catch (error) { UI.toast(I18n.t("Impossible de lire l'historique : {0}", error.message), { kind: 'error' }); }
+    const id = `speech-history-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dialog = UI.dialog({ title: I18n.t('Historique des paroles'), message: `<div id="${id}" class="speech-history"></div>`, ok: 'Fermer' });
+    const list = document.getElementById(id);
+    paginatedSpeechHistory(space.rid, list)();
+    await dialog;
   }
 
   function talk(space) {
@@ -337,7 +389,7 @@
     const tab = findTab(tabId);
     if (!tab || tab.space.remote === 'off') return;
     let snap = null;
-    try { snap = kindOf(tab).remoteSnapshot ? await kindOf(tab).remoteSnapshot(tab) : null; } catch (e) { snap = { error: String(e.message || e) }; }
+    try { mountTab(tab); snap = kindOf(tab).remoteSnapshot ? await kindOf(tab).remoteSnapshot(tab) : null; } catch (e) { snap = { error: String(e.message || e) }; }
     api.remoteSnapshot(tabId, trSnap(snap || { unavailable: true }));
   }
   // Langue de l'interface : traduit les libellés de l'application (jamais les contenus : noms, fichiers, sorties)
@@ -358,7 +410,7 @@
     remoteTimers.delete(tabId);
     if (!on) return;
     sendSnapshot(tabId);
-    remoteTimers.set(tabId, setInterval(() => sendSnapshot(tabId), 2000));
+    if (findTab(tabId)?.kind !== 'terminal') remoteTimers.set(tabId, setInterval(() => sendSnapshot(tabId), 2000));
   });
   api.onRemoteAction(async (reqId, tabId, action, args) => {
     const tab = findTab(tabId);
@@ -368,11 +420,11 @@
     else if (action === 'activate') { activateTab(tab, true); result = {}; }
     else if (!kindOf(tab).remoteAction) result = { error: 'Action non disponible' };
     else {
-      try { result = (await kindOf(tab).remoteAction(tab, action, args || {})) || {}; } catch (e) { result = { error: String(e.message || e) }; }
+      try { mountTab(tab); result = (await kindOf(tab).remoteAction(tab, action, args || {})) || {}; } catch (e) { result = { error: String(e.message || e) }; }
     }
     if (result) { result.error = tr(result.error); result.toast = tr(result.toast); }
     api.remoteActionResult(reqId, result);
-    setTimeout(() => sendSnapshot(tabId), 150);
+    if (tab?.kind !== 'terminal') setTimeout(() => sendSnapshot(tabId), 150);
   });
 
   function wave(space) {
@@ -415,7 +467,7 @@
   }
 
   function workspaceMenu() {
-    const recentItems = ctx.recent.filter((r) => !ctx.ws || r.root.toLowerCase() !== ctx.ws.root.toLowerCase()).map((r) => ({
+    const recentItems = ctx.recent.filter((r) => !ctx.ws || Platform.pathKey(r.root) !== Platform.pathKey(ctx.ws.root)).map((r) => ({
       label: r.name, hint: r.root.length > 40 ? '…' + r.root.slice(-38) : r.root, icon: '◆', action: () => api.openWorkspace(r.root),
     }));
     const items = [];
@@ -425,9 +477,9 @@
       items.push({ label: 'Personnaliser le robot du workspace…', icon: '🛠', action: workspaceStudio });
       items.push({ label: 'Nouveau robot pour le workspace', icon: '🎲', action: rerollWorkspace });
       items.push({ label: 'Configuration (.robot)', icon: '⚙', submenu: [
-        { label: 'Modifier workspace.json', action: () => openFile(ensureSpace(), `${ctx.ws.root}\\.robot\\workspace.json`) },
-        { label: 'Modifier services.json', action: () => openFile(ensureSpace(), `${ctx.ws.root}\\.robot\\services.json`) },
-        { label: 'Explorer le dossier .robot', action: () => openTab(ensureSpace(), { kind: 'explorer', root: `${ctx.ws.root}\\.robot` }) },
+        { label: 'Modifier workspace.json', action: () => openFile(ensureSpace(), Platform.joinPath(ctx.ws.root, '.robot', 'workspace.json')) },
+        { label: 'Modifier services.json', action: () => openFile(ensureSpace(), Platform.joinPath(ctx.ws.root, '.robot', 'services.json')) },
+        { label: 'Explorer le dossier .robot', action: () => openTab(ensureSpace(), { kind: 'explorer', root: Platform.joinPath(ctx.ws.root, '.robot') }) },
         { label: "Ouvrir dans l'Explorateur Windows", action: () => api.revealWorkspace() },
       ] });
       items.push('-');
@@ -700,7 +752,7 @@
   }
 
   async function canCloseSpace(space) {
-    for (const t of [...space.tabs]) if (kindOf(t).canClose && !(await kindOf(t).canClose(t))) return;
+    for (const t of [...space.tabs]) if (t.mounted !== false && kindOf(t).canClose && !(await kindOf(t).canClose(t))) return;
     return true;
   }
 
@@ -967,7 +1019,7 @@
       renderCrew();
       save();
     }
-    if (focus && space.activeTab) kindOf(space.activeTab).focus(space.activeTab);
+    if (focus && space.activeTab && !restoring) { mountTab(space.activeTab); kindOf(space.activeTab).focus(space.activeTab); }
   }
 
   function toggleMaximize(space) {
@@ -1577,7 +1629,7 @@
       voiceSelect.setAttribute('aria-label', I18n.t('Voix du robot'));
       const defaultVoice = h('option');
       defaultVoice.value = '';
-      defaultVoice.textContent = I18n.t('Voix système par défaut');
+      defaultVoice.textContent = I18n.t('Voix eSpeak NG par défaut (français)');
       voiceSelect.appendChild(defaultVoice);
       voiceSelect.disabled = true;
       voiceRow.appendChild(voiceSelect);
@@ -1585,16 +1637,11 @@
       const voiceStatus = h('div', 'rp-help', esc(I18n.t('Chargement des voix…')));
       paneVoice.appendChild(voiceStatus);
       const voiceActions = h('div', 'rp-choices');
-      const addVoices = h('button', 'tb-btn rp-add-voices', esc(I18n.t('Ajouter d’autres voix…')));
-      addVoices.addEventListener('click', async () => {
-        try { await api.manageSpeechVoices(); }
-        catch (error) { UI.toast(I18n.t('Impossible d’ouvrir les paramètres Windows : {0}', error.message), { kind: 'error' }); }
-      });
       const refreshVoices = h('button', 'tb-btn rp-refresh-voices', esc(I18n.t('Actualiser les voix')));
       refreshVoices.addEventListener('click', () => renderVoice());
-      voiceActions.append(addVoices, refreshVoices);
+      voiceActions.append(refreshVoices);
       paneVoice.appendChild(voiceActions);
-      const voiceInstallHelp = h('div', 'rp-help', esc(I18n.t('Dans Windows, utilisez Ajouter des voix, puis actualisez cette liste. Seules les voix compatibles System.Speech sont disponibles ; certaines voix du Narrateur ne le sont pas.')));
+      const voiceInstallHelp = h('div', 'rp-help', esc(I18n.t('Les voix robotiques eSpeak NG fonctionnent hors ligne.')));
       paneVoice.appendChild(voiceInstallHelp);
       voiceSelect.addEventListener('change', () => {
         space.voiceName = voiceSelect.value;
@@ -1618,6 +1665,10 @@
           option.setAttribute('data-no-i18n', '');
           voiceSelect.appendChild(option);
         }
+        if (result.supported && space.voiceName && !space.voiceName.startsWith('espeak:')) {
+          space.voiceName = '';
+          save();
+        }
         if (space.voiceName && !result.voices.some((voice) => voice.id === space.voiceName)) {
           const missing = h('option');
           missing.value = space.voiceName;
@@ -1628,7 +1679,7 @@
         voiceSelect.value = space.voiceName;
         voiceSelect.disabled = !result.supported || !result.voices.length;
         voiceStatus.textContent = !result.supported ? I18n.t('Le choix de la voix est actuellement disponible sous Windows.') :
-          !result.voices.length ? I18n.t('Aucune voix système disponible.') :
+          !result.voices.length ? I18n.t('Aucune voix eSpeak NG disponible.') :
             I18n.t('La voix choisie est conservée pour ce robot.');
       } catch (error) {
         if (paneVoice.seq === seq && paneVoice.isConnected) voiceStatus.textContent = I18n.t('Impossible de charger les voix : {0}', error.message);
@@ -1751,22 +1802,10 @@
     historyList.textContent = I18n.t('Chargement des messages…');
     historyPane.append(historyHead, historyList);
     robotPicker.append(controls, historyPane);
-    let historyRequest = 0;
+    const loadHistory = paginatedSpeechHistory(space.rid, historyList, true, (count) => { clearHistory.disabled = !count; });
     const refreshHistory = async (rid = space.rid) => {
       if (rid !== space.rid || robotPicker.classList.contains('hidden')) return;
-      const requestId = ++historyRequest;
-      try {
-        const entries = await api.speechHistory(space.rid);
-        if (requestId !== historyRequest || !historyPane.isConnected) return;
-        const scrollTop = historyList.scrollTop;
-        const oldHeight = historyList.scrollHeight;
-        historyList.innerHTML = speechHistoryContent(entries, true);
-        clearHistory.disabled = !entries.length;
-        if (scrollTop > 0) historyList.scrollTop = scrollTop + historyList.scrollHeight - oldHeight;
-      } catch (error) {
-        if (requestId !== historyRequest || !historyPane.isConnected) return;
-        historyList.textContent = I18n.t("Impossible de lire l'historique : {0}", error.message);
-      }
+      await loadHistory();
     };
     let deleting = false;
     const deleteHistory = async (id = null) => {
@@ -1939,6 +1978,37 @@
   function shellLabel(id) { return shells.find((s) => s.id === id)?.label || 'Console'; }
   function defaultShell(space) { return space.lastShell || Settings.data.defaultShell || shells[0]?.id; }
 
+  function mountTab(tab) {
+    if (tab.mounted || tab.mounting || tab.disposed) return;
+    tab.mounting = true;
+    try {
+      kindOf(tab).mount(tab, { ...tab.spec, attachOnly: tab.attachOnly ?? tab.spec.attachOnly });
+      tab.mounted = true;
+    } finally { tab.mounting = false; }
+  }
+
+  function mountRemainingTabs() {
+    const pending = spaces.flatMap((sp) => sp.tabs).filter((tab) => !tab.mounted);
+    pending.sort((a, b) => Number(b.kind === 'terminal') - Number(a.kind === 'terminal'));
+    const next = () => {
+      const tab = pending.shift();
+      if (!tab) return;
+      if (!tab.disposed && tab.space.tabs.includes(tab)) {
+        try { mountTab(tab); } catch (error) {
+          console.error('[restore:mount]', error);
+          UI.toast(error.message, { kind: 'error' });
+        }
+      }
+      schedule();
+    };
+    const schedule = () => {
+      if (!pending.length) return;
+      if (window.requestIdleCallback) window.requestIdleCallback(next, { timeout: 500 });
+      else setTimeout(next, 16);
+    };
+    schedule();
+  }
+
   function openTab(space, spec = {}, opts = {}) {
     if (typeof spec === 'string') spec = { kind: 'terminal', shellId: spec };
     spec = { kind: 'terminal', ...spec };
@@ -1955,6 +2025,10 @@
       born: Date.now(),
       model: spec.model && typeof spec.model === 'object' ? spec.model : null, // modèle d'onglet d'origine : { id, icon, name }
       icon: spec.icon || null, // icône choisie à la main (prioritaire)
+      shellId: spec.shellId, cwd: spec.cwd, root: spec.root, file: spec.file,
+      ptyId: spec.kind === 'terminal' ? spec.sessionId : undefined,
+      attachOnly: !!spec.attachOnly,
+      mounted: false,
     };
 
     const tabEl = h('div', 'tab tab-' + spec.kind + (tab.model ? ' from-model' : ''));
@@ -1984,9 +2058,10 @@
 
     space.tabs.push(tab);
     updateEmpty(space);
-    activateTab(tab, !restoring && space === activeSpace);
-    kind.mount(tab, spec);
-    tab.mounted = true;
+    if (!opts.defer) {
+      activateTab(tab, !restoring && space === activeSpace);
+      mountTab(tab);
+    }
     renderCrewTabs(space);
     save();
     return tab;
@@ -2202,7 +2277,7 @@
       { label: 'Renommer…', icon: '✎', action: () => renameTab(tab) },
       { label: 'Changer l\'icône…', icon: tabIconHtml(tab), action: () => changeTabIcon(tab, anchor) },
       ...(tab.icon ? [{ label: 'Icône par défaut', icon: '↺', action: () => { tab.icon = null; const el = tab.el.querySelector('.tab-icon'); if (el) el.innerHTML = tabIconHtml(tab); renderCrewTabs(tab.space); save(); } }] : []),
-      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...kindOf(tab).serialize(tab), sessionId: undefined }) },
+      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...serializeTab(tab), sessionId: undefined }) },
       { label: 'Déplacer vers', icon: '↦', submenu: [
         ...others.map((s) => ({ label: s.name + (s.parked ? ' (rangé)' : ''), action: () => moveTab(tab, s) })),
         others.length ? '-' : null,
@@ -2243,7 +2318,7 @@
     target.tabs.splice(at, 0, tab);
     target.tabs.forEach((t) => target.tabsEl.appendChild(t.el));
     target.host.appendChild(tab.pane);
-    kindOf(tab).applyTheme?.(tab);
+    if (tab.mounted) kindOf(tab).applyTheme?.(tab);
     updateEmpty(target);
     if (target.parked) unparkSpace(target);
     activateTab(tab, true);
@@ -2259,7 +2334,7 @@
   // Ouvre un fichier dans un onglet éditeur (réutilise l'onglet s'il est déjà ouvert)
   function openFile(space, file, line) {
     for (const s of spaces) {
-      const t = s.tabs.find((x) => x.kind === 'editor' && x.file?.toLowerCase() === file.toLowerCase());
+      const t = s.tabs.find((x) => x.kind === 'editor' && x.file && Platform.pathKey(x.file) === Platform.pathKey(file));
       if (t) {
         if (s.parked) unparkSpace(s);
         activateTab(t, true);
@@ -2304,8 +2379,9 @@
       const nb = botFor(space);
       if (nb.tool !== space.bot.tool) { space.bot = nb; applyBot(space); }
     }
-    requestAnimationFrame(() => {
-      if (!tab.space.tabs.includes(tab)) return;
+    if (!restoring) requestAnimationFrame(() => {
+      if (restoring || !tab.space.tabs.includes(tab) || tab.space.activeTab !== tab) return;
+      mountTab(tab);
       kindOf(tab).activate(tab);
       if (focus) { setActiveSpace(tab.space, false); kindOf(tab).focus(tab); }
     });
@@ -2313,9 +2389,13 @@
   }
 
   async function closeTab(tab, silent) {
-    if (!silent && kindOf(tab).canClose && !(await kindOf(tab).canClose(tab))) return;
+    if (tab.mounted && !silent && kindOf(tab).canClose && !(await kindOf(tab).canClose(tab))) return;
     const space = tab.space;
-    kindOf(tab).dispose(tab);
+    if (tab.mounted) kindOf(tab).dispose(tab);
+    else if (tab.kind === 'terminal' && tab.ptyId) {
+      if (tab.attachOnly) api.detachPty(tab.ptyId); else api.kill(tab.ptyId);
+    }
+    tab.disposed = true;
     tab.el.remove();
     tab.pane.remove();
     const i = space.tabs.indexOf(tab);
@@ -2333,7 +2413,11 @@
     save();
   }
 
-  function resizeTab(tab) { if (tab) kindOf(tab).resize(tab); }
+  function resizeTab(tab) {
+    if (!tab || restoring || !tab.pane.offsetParent) return;
+    mountTab(tab);
+    kindOf(tab).resize(tab);
+  }
   function updateEmpty(space) { space.empty.classList.toggle('hidden', space.tabs.length > 0); }
 
   // ---------- Types d'onglets / d'espaces ----------
@@ -2546,13 +2630,14 @@
   }
 
   window.addEventListener('keydown', (e) => {
-    const cs = e.ctrlKey && e.shiftKey && !e.altKey;
+    const primary = Platform.primary(e);
+    const cs = primary && e.shiftKey && !e.altKey;
     let handled = true;
     const tab = activeSpace?.activeTab;
     if (e.key === 'Escape' && Settings.isOpen) Settings.close();
     else if (e.key === 'Escape' && !$('#help').classList.contains('hidden')) $('#help').classList.add('hidden');
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === ',') Settings.open();
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyO') pickWorkspace();
+    else if (primary && !e.shiftKey && !e.altKey && e.key === ',') Settings.open();
+    else if (primary && !e.shiftKey && !e.altKey && e.code === 'KeyO') pickWorkspace();
     else if (cs && e.code === 'KeyN') newSpace();
     else if (cs && e.code === 'KeyT') activeSpace ? openTab(activeSpace) : newSpace();
     else if (cs && e.code === 'KeyE') openKind(activeSpace, 'explorer');
@@ -2560,11 +2645,11 @@
     else if (cs && e.code === 'KeyM') activeSpace && toggleMaximize(activeSpace);
     else if (cs && e.code === 'KeyL') showLayoutPicker($('#btn-layout'));
     else if (e.ctrlKey && !e.altKey && e.key === 'Tab') cycleTab(e.shiftKey ? -1 : 1);
-    else if (e.ctrlKey && e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) { const sc = screens[+e.code.slice(5) - 1]; if (sc) switchScreen(sc.id); }
-    else if (e.ctrlKey && e.altKey && !e.shiftKey && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) { const i = screens.findIndex((sc) => sc.id === activeScreenId); const sc = screens[(i + (e.code === 'ArrowRight' ? 1 : -1) + screens.length) % screens.length]; switchScreen(sc.id); }
-    else if (e.altKey && !e.ctrlKey && /^Digit[1-9]$/.test(e.code)) focusSpaceAt(+e.code.slice(5) - 1);
-    else if (e.altKey && !e.ctrlKey && e.code === 'ArrowLeft') focusSpaceAt(spaces.indexOf(activeSpace) - 1);
-    else if (e.altKey && !e.ctrlKey && e.code === 'ArrowRight') focusSpaceAt(spaces.indexOf(activeSpace) + 1);
+    else if (primary && e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) { const sc = screens[+e.code.slice(5) - 1]; if (sc) switchScreen(sc.id); }
+    else if (primary && e.altKey && !e.shiftKey && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) { const i = screens.findIndex((sc) => sc.id === activeScreenId); const sc = screens[(i + (e.code === 'ArrowRight' ? 1 : -1) + screens.length) % screens.length]; switchScreen(sc.id); }
+    else if (e.altKey && !primary && /^Digit[1-9]$/.test(e.code)) focusSpaceAt(+e.code.slice(5) - 1);
+    else if (e.altKey && !primary && e.code === 'ArrowLeft') focusSpaceAt(spaces.indexOf(activeSpace) - 1);
+    else if (e.altKey && !primary && e.code === 'ArrowRight') focusSpaceAt(spaces.indexOf(activeSpace) + 1);
     else handled = false;
     if (handled) { e.preventDefault(); e.stopPropagation(); }
   }, true);
@@ -2669,12 +2754,12 @@
     if (changed.includes('robotVoice')) publishSpeech();
     if (changed.includes('tabModels') || changed.includes('zoneModels') || changed.includes('hiddenPresetIds')) spaces.forEach(fillEmpty);
     if (changed.some((k) => k.startsWith('editor') || k === 'fontFamily' || k === 'fontSize')) Editor.applySettings();
-    for (const s of spaces) for (const t of s.tabs) kindOf(t).applySettings?.(t, changed);
+    for (const s of spaces) for (const t of s.tabs) if (t.mounted) kindOf(t).applySettings?.(t, changed);
   });
 
   // API partagée avec les modules d'onglets
   window.CAI = {
-    h, say, talk, save, openTab, openExplorer, openFile, openKind, setAutoTitle, markUnread, shellLabel, spaces,
+    h, say, talk, save, openTab, openExplorer, openFile, openKind, setAutoTitle, markUnread, shellLabel, spaces, serializeTab,
     activateTab, closeTab, moveTab, openZoneModel, openScreenModel, snapshotSpace, snapshotScreen,
     get currentScreen() { return curScreen(); },
     refreshCrew: () => spaces.forEach(renderCrewTabs),
@@ -2682,7 +2767,7 @@
     get activeSpace() { return activeSpace; },
     get shells() { return shells; },
     get ws() { return ctx.ws; },
-    get scope() { return 'term:' + (ctx.ws?.root?.toLowerCase() || 'global'); },
+    get scope() { return 'term:' + (Platform.pathKey(ctx.ws?.root) || 'global'); },
   };
 
   // ---------- Démarrage ----------
@@ -2730,7 +2815,7 @@
         const s = createSpace({ seed: ss.seed, name: ss.name, parked: ss.parked || ss.asleep, traits: ss.traits, icon: ss.icon, sound: ss.sound, voice: ss.voice, voiceName: ss.voiceName, remote: ss.remote, rid: ss.rid, asleep: ss.asleep, screenId: (screens[ss.screen || 0] || screens[0]).id });
         for (const t of ss.tabs || []) {
           const { title, ...spec } = t;
-          try { openTab(s, { kind: 'terminal', ...spec }, { title }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }
+          try { openTab(s, { kind: 'terminal', ...spec }, { title, defer: true }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }
         }
         const at = s.tabs[ss.activeTab] || s.tabs[0];
         if (at) activateTab(at, false);
@@ -2760,6 +2845,10 @@
       setActiveSpace(want && !want.parked ? want : nearestVisible(spaces.length - 1), true);
       // Espaces renvoyés par une fenêtre secondaire fermée pendant que celle-ci était fermée
       for (const p of state.pendingSpaces || []) receiveSpaces(p);
+      for (const sp of visibleSpaces()) if ((!maximized || maximized === sp) && sp.activeTab) mountTab(sp.activeTab);
+      await nextPaint();
+      hideBoot();
+      mountRemainingTabs();
     } else {
       const s = createSpace();
       placeSpace(s);

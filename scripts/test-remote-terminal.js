@@ -140,6 +140,14 @@ app.whenReady().then(async () => {
       assert(!window.__operations.some((o) => o[1] === 'TRUNCATED PTY HISTORY'), 'Incomplete PTY history is never replayed');
       assert(!window.__sent.some((m) => m.t === 'input'), 'Replaying historical terminal queries must not send replies to the live CLI');
       assert(!terminal.options.disableStdin, 'Keyboard input is enabled after synchronization');
+      const beforeGap = window.__sent.filter((m) => m.t === 'action' && m.action === 'terminal-snapshot').length;
+      desktopTab.outputSeq++;
+      await new Promise((resolve) => desktop.write('\\r\\nNOT-DELIVERED', resolve));
+      await feed('\\r\\nAFTER-GAP');
+      assert(window.__sent.filter((m) => m.t === 'action' && m.action === 'terminal-snapshot').length === beforeGap + 1,
+        'A missing incremental sequence automatically requests a new PC snapshot');
+      await reply();
+      assert(buffer(terminal) === buffer(desktop), 'Sequence-gap resynchronization recovers the missing output without duplicates');
       await feed('\\x1b[6n\\x1b[?6n\\x1b[c\\x1b[>c');
       await settled();
       assert(!window.__sent.some((m) => m.t === 'input'), 'The mirror must not duplicate cursor/capability replies already provided by the PC');
@@ -232,9 +240,9 @@ app.whenReady().then(async () => {
       await reply();
       assert(!terminal.options.disableStdin && buffer(terminal) === buffer(desktop), 'Resynchronization recovers from snapshot errors');
 
-      const historyReply = (entries) => {
+      const historyReply = (entries, nextCursor = null) => {
         const req = window.__sent.findLast((m) => m.t === 'speechHistory').req;
-        receive({ t: 'actionResult', req, result: { entries } });
+        receive({ t: 'actionResult', req, result: { entries, nextCursor } });
       };
       const speechEntry = (text, id = 'message') => ({ id, at: new Date().toISOString(), source: 'cli', text });
       document.querySelector('.speech-details > button').click();
@@ -293,17 +301,30 @@ app.whenReady().then(async () => {
       groups[0].querySelector('.rcard').click();
       await frames();
       assert(location.hash === '#/r/alpha-first', 'Grouped robot cards preserve direct navigation');
-      historyReply(Array.from({ length: 205 }, (_, i) => speechEntry('Activity ' + i, String(i))));
+      historyReply(Array.from({ length: 100 }, (_, i) => speechEntry('Activity ' + (105 + i), String(105 + i))), 'older-1');
+      assert(document.querySelectorAll('.speech-history .speech-entry').length === 100,
+        'Remote history initially shows only one bounded page');
+      document.querySelector('.speech-older').click();
+      assert(window.__sent.findLast((m) => m.t === 'speechHistory').cursor === 'older-1',
+        'The older history button forwards the page cursor');
+      historyReply(Array.from({ length: 100 }, (_, i) => speechEntry('Activity ' + (5 + i), String(5 + i))), 'older-2');
+      document.querySelector('.speech-older').click();
+      historyReply(Array.from({ length: 5 }, (_, i) => speechEntry('Activity ' + i, String(i))));
       assert(document.querySelectorAll('.speech-history .speech-entry').length === 205,
-        'Complete history remains accessible even for robots with no tabs');
+        'Complete history remains accessible on demand even for robots with no tabs');
+      assert(document.querySelector('.speech-older').hidden, 'Remote pagination stops at the oldest message');
+      assert(document.querySelector('.speech-history .speech-entry div').textContent === 'Activity 204',
+        'Loading older pages preserves newest-first ordering');
       await new Promise((resolve) => setTimeout(resolve, 550));
       assert(document.querySelector('.speech-panel .robot-message').classList.contains('hidden'),
         'Live messages expire without removing their history');
       document.querySelector('.speech-details > button').click();
       const historyReq = window.__sent.findLast((m) => m.t === 'speechHistory').req;
       receive({ t: 'actionResult', req: historyReq, result: { error: 'History unavailable' } });
-      assert(document.querySelector('.speech-history.error').textContent === 'History unavailable',
+      assert(document.querySelector('.speech-status').textContent === 'History unavailable',
         'History loading errors are displayed explicitly');
+      assert(document.querySelectorAll('.speech-history .speech-entry').length === 205,
+        'Remote history errors preserve already loaded messages');
       location.hash = '';
       await frames();
       receive({ t: 'robots', robots: [shared('renamed', { root: 'a', name: 'Renamed', svg: '<svg><circle id="updated-bot" r="10"/></svg>' })] });

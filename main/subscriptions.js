@@ -3,6 +3,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
+const { quoteShell } = require('./platform');
 
 const number = (v) => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const percent = (v) => number(v) !== null && v >= 0 && v <= 100 ? v : null;
@@ -132,7 +133,7 @@ class Subscriptions {
   }
 
   claudeCommand() {
-    return `node "${path.join(__dirname, '..', 'bin', 'claude-usage.js')}" --output "${path.join(this.userData, 'claude-usage.json')}"`;
+    return `node ${quoteShell(path.join(__dirname, '..', 'bin', 'claude-usage.js'))} --output ${quoteShell(path.join(this.userData, 'claude-usage.json'))}`;
   }
 
   async installClaude() {

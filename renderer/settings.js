@@ -232,7 +232,7 @@
         name.placeholder = 'Nom';
         const p = el('input', 'set-input');
         p.value = f.path || '';
-        p.placeholder = 'C:\\chemin\\du\\dossier';
+        p.placeholder = Platform.isWindows ? 'C:\\chemin\\du\\dossier' : '/chemin/du/dossier';
         const pick = el('button', 'icon-btn', '📂');
         const rm = el('button', 'icon-btn danger', '✕');
         const commit = () => { const next = favs.map((x, j) => (j === i ? { name: name.value, path: p.value } : x)); set({ explorerFavorites: next }); };

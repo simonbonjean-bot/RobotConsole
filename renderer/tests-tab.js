@@ -227,7 +227,7 @@
       const k = `${pre}${[mod, ...parts.slice(1, -1)].join('.')}::${parts[parts.length - 1]}`;
       if (r[k]) return r[k];
     }
-    const same = (f) => f && n.file && f.toLowerCase() === n.file.toLowerCase();
+    const same = (f) => f && n.file && Platform.pathKey(f) === Platform.pathKey(n.file);
     let byName = null;
     for (const [k, v] of Object.entries(r)) {
       if (!k.startsWith(pre) || v.name !== n.name) continue;
@@ -363,7 +363,7 @@
       items.push(
         { label: 'Changer de catégorie', icon: '🗂', submenu: Object.entries(CATS).map(([id, c]) => ({ label: `${c.icon} ${c.name}`, checked: n.parent?.category === id, action: () => setCategory(tab, n, id) })) },
         { label: 'Renommer la suite…', icon: '✎', action: async () => { const v = await UI.prompt('Nom de la suite', n.name); if (v) { await api.testsUpdateSuite(t.root, n.suiteId, { name: v }); discover(tab); } } },
-        { label: 'Ouvrir un terminal dans le paquet', icon: '>_', action: () => CAI.openTab(tab.space, { kind: 'terminal', cwd: n.cwd ? `${t.root}\\${n.cwd.replace(/\//g, '\\')}` : t.root }) },
+        { label: 'Ouvrir un terminal dans le paquet', icon: '>_', action: () => CAI.openTab(tab.space, { kind: 'terminal', cwd: n.cwd ? Platform.joinPath(t.root, n.cwd) : t.root }) },
       );
     }
     items.push('-',
@@ -385,7 +385,7 @@
     const t = tab.t;
     return [
       { label: 'Détecter les tests du workspace', icon: '🔍', action: () => detect(tab) },
-      { label: 'Modifier .robot/tests.json', icon: '✎', action: () => CAI.openFile(tab.space, `${t.root}\\.robot\\tests.json`) },
+      { label: 'Modifier .robot/tests.json', icon: '✎', action: () => CAI.openFile(tab.space, Platform.joinPath(t.root, '.robot', 'tests.json')) },
       '-',
       { label: 'Lancer une catégorie', icon: '▶', submenu: t.tree.map((c) => ({ label: `${c.icon} ${c.name}`, hint: `${count([c])} tests`, action: () => run(tab, { category: c.category }) })) },
       { label: 'Tout déplier', icon: '⇲', action: () => { t.index.forEach((n) => n.children && t.expanded.add(n.id)); renderTree(tab); } },
@@ -482,7 +482,7 @@
 
   function linkify(html, root) {
     return html.replace(/((?:[A-Za-z]:)?[\w./\\-]+\.(?:[cm]?[jt]sx?|py|go|rs|vue|svelte)):(\d+)(?::(\d+))?/g, (m, f, l) => {
-      const abs = /^[A-Za-z]:|^[\\/]/.test(f) ? f : `${root}\\${f.replace(/\//g, '\\')}`;
+      const abs = /^[A-Za-z]:|^[\\/]/.test(f) ? f : Platform.joinPath(root, f);
       return `<a class="link" data-file="${esc(abs)}" data-line="${l}">${m}</a>`;
     });
   }

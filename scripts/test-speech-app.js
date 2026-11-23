@@ -44,8 +44,8 @@ const voices = [];
 const selectedVoices = [];
 require('../main/speech-voice').SpeechVoice.prototype.listVoices = async function () {
   return { supported: true, voices: [
-    { id: 'Test French', name: 'Test French', language: 'fr-FR' },
-    { id: 'Test English', name: 'Test English', language: 'en-US' },
+    { id: 'espeak:fr', name: 'espeak:fr', language: 'fr-FR' },
+    { id: 'espeak:en-us', name: 'espeak:en-us', language: 'en-US' },
   ] };
 };
 require('../main/speech-voice').SpeechVoice.prototype.speak = async function (text, volume, allowed, voiceName) {
@@ -92,8 +92,13 @@ app.whenReady().then(async () => {
     assert.ok(fs.existsSync(path.join(process.env.ROBOTCONSOLE_USERDATA, 'speech-history.jsonl')));
     await win.webContents.executeJavaScript(`CAI.spaces[0].robotEl.click(); void 0;`);
     const panel = await win.webContents.executeJavaScript(`(async () => {
-      for (let i = 0; i < 100 && document.querySelectorAll('.rp-speech-list .speech-entry').length !== 206; i++) {
+      for (let i = 0; i < 100 && document.querySelectorAll('.rp-speech-list .speech-entry').length !== 100; i++) {
         await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      if (document.querySelectorAll('.rp-speech-list .speech-entry').length !== 100) throw new Error('Initial history page must be bounded');
+      for (let page = 0; page < 2; page++) {
+        document.querySelector('.speech-older').click();
+        for (let i = 0; i < 100 && document.querySelector('.speech-older').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
       }
       const left = document.querySelector('.rp-controls').getBoundingClientRect();
       const right = document.querySelector('.rp-speech').getBoundingClientRect();
@@ -105,7 +110,7 @@ app.whenReady().then(async () => {
         newest: document.querySelector('.rp-speech-list .speech-entry div').textContent,
       };
     })()`);
-    assert.equal(panel.count, 206, 'The click menu shows more than 200 messages');
+    assert.equal(panel.count, 206, 'The click menu loads all older messages on demand');
     assert.equal(panel.rightOfControls, true, 'Messages are displayed to the right of robot controls');
     assert.equal(panel.oldestPresent, true);
     assert.equal(panel.htmlEscaped, true);
@@ -156,7 +161,8 @@ app.whenReady().then(async () => {
       document.querySelector('.speech-clear').click();
       document.querySelector('.dlg-actions .tb-btn').click();
     })()`);
-    assert.equal((await win.webContents.executeJavaScript(`api.speechHistory('robotone')`)).length, 207, 'Cancelling clear preserves messages');
+    assert.equal((await request(pipe, { action: 'history', robot: 'robotone' })).length, 200, 'Cancelling clear preserves CLI history');
+    assert.equal(fs.readFileSync(path.join(process.env.ROBOTCONSOLE_USERDATA, 'speech-history.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line)).filter((entry) => entry.rid === 'robotone').length, 207, 'Cancelling clear preserves every stored message for the robot');
     await win.webContents.executeJavaScript(`
       document.querySelector('.speech-clear').click();
       const confirm = document.querySelector('.dlg-actions .danger-btn');
@@ -214,29 +220,24 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
       const select = document.querySelector('.rp-voice-select');
       const values = [...select.options].map((option) => option.value);
-      select.value = 'Test French';
+      select.value = 'espeak:fr';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return { values, consent: CAI.spaces[0].voice };
     })()`);
-    assert.deepEqual(selected.values, ['', 'Test French', 'Test English'], 'The menu lists system voices and a default choice');
+    assert.deepEqual(selected.values, ['', 'espeak:fr', 'espeak:en-us'], 'The menu lists eSpeak voices and a default choice');
     assert.equal(selected.consent, false, 'Selecting a voice never grants permission to speak');
-    if (process.platform === 'win32') {
-      const opened = [];
-      require('electron').shell.openExternal = async (url) => { opened.push(url); };
-      await win.webContents.executeJavaScript(`document.querySelector('.rp-add-voices').click(); void 0;`);
-      assert.deepEqual(opened, ['ms-settings:speech'], 'The add-voices link opens the fixed Windows speech settings page');
-    }
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.rp-add-voices')`), null);
     await win.webContents.executeJavaScript(`document.querySelector('.rp-refresh-voices').click(); void 0;`);
     const refreshedVoice = await win.webContents.executeJavaScript(`(async () => {
       for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
       return document.querySelector('.rp-voice-select').value;
     })()`);
-    assert.equal(refreshedVoice, 'Test French', 'Refreshing voices preserves the robot selection');
+    assert.equal(refreshedVoice, 'espeak:fr', 'Refreshing voices preserves the robot selection');
     await assert.rejects(win.webContents.executeJavaScript(`api.speechVoice('Not approved', 0, 'robotone')`), /non autorisée/);
     await win.webContents.executeJavaScript(`document.querySelector('.rp-voice-consent').click(); void 0;`);
     await request(pipe, { action: 'say', robot: 'robotone', text: 'Approved speech' });
     assert.ok(voices.includes('Approved speech'));
-    assert.equal(selectedVoices.at(-1), 'Test French', 'The chosen robot voice reaches the speech engine');
+    assert.equal(selectedVoices.at(-1), 'espeak:fr', 'The chosen robot voice reaches the speech engine');
     await request(pipe, { action: 'say', robot: 'robottwo', text: 'Other robot stays silent' });
     assert.ok(!voices.includes('Other robot stays silent'));
     await win.webContents.executeJavaScript(`Settings.set({ robotVoice: false }); void 0;`);
@@ -246,16 +247,16 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return (await api.loadState()).spaces.map((space) => ({ allowed: space.voice === true, name: space.voiceName || '' }));
     })()`);
-    assert.deepEqual(savedVoice, [{ allowed: true, name: 'Test French' }, { allowed: false, name: '' }], 'Individual permissions and voice choices are saved independently');
+    assert.deepEqual(savedVoice, [{ allowed: true, name: 'espeak:fr' }, { allowed: false, name: '' }], 'Individual permissions and voice choices are saved independently');
     const missingVoice = await win.webContents.executeJavaScript(`(async () => {
-      CAI.spaces[0].voiceName = 'Removed voice';
+      CAI.spaces[0].voiceName = 'espeak:removed';
       CAI.spaces[0].robotEl.click();
       document.querySelector('.rp-voice-button').click();
       for (let i = 0; i < 100 && document.querySelector('.rp-voice-select').disabled; i++) await new Promise((resolve) => setTimeout(resolve, 20));
       const select = document.querySelector('.rp-voice-select');
       return { value: select.value, disabled: select.selectedOptions[0].disabled };
     })()`);
-    assert.deepEqual(missingVoice, { value: 'Removed voice', disabled: true }, 'A missing saved voice is shown explicitly instead of silently switching');
+    assert.deepEqual(missingVoice, { value: 'espeak:removed', disabled: true }, 'A missing saved voice is shown explicitly instead of silently switching');
     console.log('Speech app: IPC, complete live history, individual deletion and confirmed clear passed.');
     console.log('Skill settings: user/folder installs and protected custom copies passed.');
     console.log('Robot voice: consent, voice selection, missing voices and persistence passed.');

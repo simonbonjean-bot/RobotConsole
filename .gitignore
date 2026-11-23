@@ -5,3 +5,5 @@ graphify-out/
 Thumbs.db
 .claude/settings.local.json
 *.lnk
+
+.runtime/

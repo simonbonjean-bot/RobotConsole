@@ -36,7 +36,7 @@
     finish: { label: 'Finition', values: { mat: 'Mat', metal: 'Métal', pastel: 'Pastel', neon: 'Néon', gold: 'Or', chrome: 'Chrome' } },
   };
   // Traits visibles seulement « en pied »
-  const LEGS_KEYS = new Set(['neck', 'chest', 'arms', 'legs', 'gear']);
+  const LEGS_KEYS = new Set(['neck', 'arms', 'legs', 'gear']);
   const keys = (k) => Object.keys(OPTIONS[k].values);
   const HEAD_OLD = ['rounded', 'circle', 'hex', 'wide', 'dome', 'trapezoid'];
   const EYES_OLD = ['round', 'square', 'visor', 'cyclops', 'oval', 'happy'];
@@ -236,6 +236,31 @@
         default: { const hx = sx + side * 16; return g(`<path d="M${sx} 90 Q${hx} 98 ${hx} 116" fill="none" stroke="${metal}" stroke-width="5" stroke-linecap="round"/><circle cx="${hx}" cy="118" r="5" fill="${main2}" stroke="${stroke}" stroke-width="2"/>`); }
       }
     };
+    function chestSvg() {
+      const front = [];
+      switch (t.chest) {
+        case 'panel': front.push(`<rect x="37" y="92" width="26" height="18" rx="4" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><circle class="core" cx="44" cy="101" r="3" fill="${glow}"/><rect class="ant-light" x="51" y="97" width="7" height="3" rx="1" fill="${glow}"/><rect x="51" y="102" width="7" height="3" rx="1" fill="${light}" opacity=".7"/>`); break;
+        case 'star': {
+          let pts = '';
+          for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? 3.4 : 8; pts += `${(50 + Math.cos(a) * rr).toFixed(1)},${(101 + Math.sin(a) * rr).toFixed(1)} `; }
+          front.push(`<polygon class="core" points="${pts}" fill="${glow}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`); break;
+        }
+        case 'bolt': front.push(`<path class="core" d="M53 90 L43 103 H50 L46 113 L58 98 H51 Z" fill="${glow}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`); break;
+        case 'heart': front.push(`<path class="core" d="M50 109 C40 102 42 92 50 96.5 C58 92 60 102 50 109 Z" fill="#ff5c8a" stroke="${stroke}" stroke-width="1.5"/>`); break;
+        case 'gauge': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><path d="M42.5 103 A7.5 7.5 0 0 1 57.5 103" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="1.6 2"/><line class="needle" x1="50" y1="102" x2="54.5" y2="95.5" stroke="${glow}" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="102" r="1.8" fill="${glow}"/>`); break;
+        case 'vents': {
+          let v = '';
+          for (let i = 0; i < 3; i++) v += `<rect x="39" y="${91 + i * 6}" width="22" height="3.2" rx="1.6" fill="${screen}"/>`;
+          front.push(v + `<circle class="core" cx="50" cy="112" r="2.2" fill="${glow}"/>`); break;
+        }
+        case 'buttons': front.push(`<rect x="36" y="91" width="28" height="20" rx="4" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/>${['#ff5c5c', '#ffd34d', '#4fd1a5'].map((c, i) => `<circle class="${i === 1 ? 'ant-light' : ''}" cx="${42 + i * 8}" cy="97" r="2.8" fill="${c}"/>`).join('')}<rect x="40" y="104" width="20" height="3" rx="1.5" fill="${glow}" opacity=".7"/>`); break;
+        case 'radar': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><circle cx="50" cy="101" r="6" fill="none" stroke="${glow}" stroke-width=".8" opacity=".55"/><path d="M40 101 H60 M50 91 V111" stroke="${glow}" stroke-width=".6" opacity=".45"/><g class="needle"><path d="M50 101 L50 91.5 A9.5 9.5 0 0 1 58.2 96.2 Z" fill="${glow}" opacity=".45"/></g><circle class="ant-light" cx="54" cy="104" r="1.4" fill="${glow}"/>`); break;
+        case 'battery': front.push(`<rect x="39" y="92" width="22" height="16" rx="2.5" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><rect x="61" y="97" width="3" height="6" rx="1" fill="${stroke}"/>${[0, 1, 2].map((i) => `<rect class="${i === 2 ? 'ant-light' : ''}" x="${41.5 + i * 6.5}" y="94.5" width="5" height="11" rx="1" fill="${i === 2 ? '#ffd34d' : '#4fd1a5'}"/>`).join('')}`); break;
+        default: front.push(`<circle class="core" cx="50" cy="100" r="${Math.max(5, t.coreR + 2)}" fill="${glow}" stroke="${stroke}" stroke-width="2"/><circle cx="38" cy="112" r="2" fill="${stroke}"/><circle cx="62" cy="112" r="2" fill="${stroke}"/>`);
+      }
+      return W('chest', front.join(''));
+    }
+
     let viewH = 100;
     if (opts.legs) {
       viewH = 156 + nk;
@@ -298,28 +323,7 @@
       front.push(W('body', bodyShape(tx, 82, tW, 38, headFill)));
       if (t.gear === 'backpack') front.push(W('gear', `<path d="M${tx + 7} 83 V116 M${tx + tW - 7} 83 V116" stroke="${dark2}" stroke-width="3.2" stroke-linecap="round"/>`));
       if (t.gear === 'shoulders') for (const s of [-1, 1]) front.push(W('gear', `<ellipse cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="86" rx="10" ry="6.5" fill="${main2}" stroke="${stroke}" stroke-width="2"/><circle cx="${s < 0 ? tx + 4 : tx + tW - 4}" cy="85" r="1.6" fill="${stroke}"/>`, s < 0 ? ' l' : ' r'));
-      const chestAt = front.length;
-      switch (t.chest) {
-        case 'panel': front.push(`<rect x="37" y="92" width="26" height="18" rx="4" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><circle class="core" cx="44" cy="101" r="3" fill="${glow}"/><rect class="ant-light" x="51" y="97" width="7" height="3" rx="1" fill="${glow}"/><rect x="51" y="102" width="7" height="3" rx="1" fill="${light}" opacity=".7"/>`); break;
-        case 'star': {
-          let pts = '';
-          for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? 3.4 : 8; pts += `${(50 + Math.cos(a) * rr).toFixed(1)},${(101 + Math.sin(a) * rr).toFixed(1)} `; }
-          front.push(`<polygon class="core" points="${pts}" fill="${glow}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`); break;
-        }
-        case 'bolt': front.push(`<path class="core" d="M53 90 L43 103 H50 L46 113 L58 98 H51 Z" fill="${glow}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`); break;
-        case 'heart': front.push(`<path class="core" d="M50 109 C40 102 42 92 50 96.5 C58 92 60 102 50 109 Z" fill="#ff5c8a" stroke="${stroke}" stroke-width="1.5"/>`); break;
-        case 'gauge': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><path d="M42.5 103 A7.5 7.5 0 0 1 57.5 103" fill="none" stroke="${light2}" stroke-width="1.5" stroke-dasharray="1.6 2"/><line class="needle" x1="50" y1="102" x2="54.5" y2="95.5" stroke="${glow}" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="102" r="1.8" fill="${glow}"/>`); break;
-        case 'vents': {
-          let v = '';
-          for (let i = 0; i < 3; i++) v += `<rect x="39" y="${91 + i * 6}" width="22" height="3.2" rx="1.6" fill="${screen}"/>`;
-          front.push(v + `<circle class="core" cx="50" cy="112" r="2.2" fill="${glow}"/>`); break;
-        }
-        case 'buttons': front.push(`<rect x="36" y="91" width="28" height="20" rx="4" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/>${['#ff5c5c', '#ffd34d', '#4fd1a5'].map((c, i) => `<circle class="${i === 1 ? 'ant-light' : ''}" cx="${42 + i * 8}" cy="97" r="2.8" fill="${c}"/>`).join('')}<rect x="40" y="104" width="20" height="3" rx="1.5" fill="${glow}" opacity=".7"/>`); break;
-        case 'radar': front.push(`<circle cx="50" cy="101" r="10" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><circle cx="50" cy="101" r="6" fill="none" stroke="${glow}" stroke-width=".8" opacity=".55"/><path d="M40 101 H60 M50 91 V111" stroke="${glow}" stroke-width=".6" opacity=".45"/><g class="needle"><path d="M50 101 L50 91.5 A9.5 9.5 0 0 1 58.2 96.2 Z" fill="${glow}" opacity=".45"/></g><circle class="ant-light" cx="54" cy="104" r="1.4" fill="${glow}"/>`); break;
-        case 'battery': front.push(`<rect x="39" y="92" width="22" height="16" rx="2.5" fill="${screen}" stroke="${stroke}" stroke-width="1.5"/><rect x="61" y="97" width="3" height="6" rx="1" fill="${stroke}"/>${[0, 1, 2].map((i) => `<rect class="${i === 2 ? 'ant-light' : ''}" x="${41.5 + i * 6.5}" y="94.5" width="5" height="11" rx="1" fill="${i === 2 ? '#ffd34d' : '#4fd1a5'}"/>`).join('')}`); break;
-        default: front.push(`<circle class="core" cx="50" cy="100" r="${Math.max(5, t.coreR + 2)}" fill="${glow}" stroke="${stroke}" stroke-width="2"/><circle cx="38" cy="112" r="2" fill="${stroke}"/><circle cx="62" cy="112" r="2" fill="${stroke}"/>`);
-      }
-      front.push(W('chest', front.splice(chestAt).join('')));
+      front.push(chestSvg());
       const wearAt = front.length;
       if (t.wear === 'rusty') front.push(`<circle cx="${tx + 7}" cy="88" r="3" fill="hsl(24 65% 36%)" opacity=".6"/><circle cx="${tx + tW - 8}" cy="113" r="4" fill="hsl(24 65% 36%)" opacity=".55"/>`);
       if (t.wear === 'scratched') front.push(`<path d="M${tx + 5} 110 l7 4 M${tx + tW - 12} 87 l6 5" stroke="#fff" stroke-width="1" opacity=".5"/>`);
@@ -335,8 +339,8 @@
         return `<g transform="translate(${sx} 85) rotate(${-side * 42}) scale(.65) translate(${-sx} -90)">${makeArm(side, bx, bw)}</g>`;
       };
       parts.push(`<g class="limbs">${sideArm(-1)}${sideArm(1)}</g>`);
-      parts.push(W('body', bodyShape(bx, 82, bw, 24, t.finish === 'neon' ? main : dark)));
-      parts.push(W('chest', `<circle class="core" cx="50" cy="92" r="${t.coreR}" fill="${glow}"/>`));
+      parts.push(W('body', bodyShape(bx, 82, bw, 18, t.finish === 'neon' ? main : dark)));
+      parts.push(`<g transform="translate(50 91) scale(.65) translate(-50 -101)">${chestSvg()}</g>`);
     }
 
     // --- Antenne (pas sous un chapeau) ---

@@ -168,6 +168,13 @@ body.resizing-x .xterm, body.resizing-y .xterm, body.resizing-x iframe { pointer
 .ed-path:focus { color: var(--text); background: var(--bg); border-color: var(--accent); }
 .ed-dirty { color: var(--space-accent, var(--accent)); font-size: 12px; white-space: nowrap; }
 .ed-host { flex: 1; min-height: 0; position: relative; overflow: hidden !important; display: flex; flex-direction: column; }
+.file-preview { flex: 1; min-height: 0; height: 100%; overflow: auto; }
+.file-pdf { width: 100%; height: 100%; border: 0; }
+.file-external { align-self: flex-start; margin: 8px; }
+.file-docx { padding: 24px; background: white; color: #222; line-height: 1.6; }
+.file-docx img { max-width: 100%; }
+.file-docx table { border-collapse: collapse; }
+.file-docx td, .file-docx th { border: 1px solid #ccc; padding: 6px; }
 .ed-monaco { flex: 1; min-height: 0; position: relative; }
 .ed-status { flex: 0 0 22px; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-top: 1px solid var(--border); background: var(--panel-2); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; user-select: none; }
 .ed-st { background: none; border: 0; color: inherit; font: inherit; padding: 2px 6px; border-radius: 4px; cursor: pointer; line-height: 16px; }

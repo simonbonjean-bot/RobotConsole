@@ -3,6 +3,7 @@
 //   - se connecte à la base (PostgreSQL) avec l'URL du .env du projet, sans jamais l'envoyer à l'interface
 const fs = require('fs');
 const path = require('path');
+const { pathKey } = require('./platform');
 
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'out', 'target', '.venv', 'venv', '.robot', 'vendor', '.turbo', '.claude']);
 const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
@@ -15,7 +16,7 @@ function find(root) {
   const out = [];
   const seen = new Set();
   const add = (schema) => {
-    const key = schema.toLowerCase();
+    const key = pathKey(schema);
     if (seen.has(key)) return;
     seen.add(key);
     const dir = packageDir(schema, root);
@@ -42,10 +43,10 @@ function isGenerated(dir) {
 // Dossier du package.json qui contient le schéma (là où lancer les commandes prisma)
 function packageDir(schema, root) {
   let d = path.dirname(schema);
-  const stop = path.resolve(root).toLowerCase();
+  const stop = pathKey(path.resolve(root));
   while (true) {
     if (exists(path.join(d, 'package.json'))) return d;
-    if (path.resolve(d).toLowerCase() === stop) return d;
+    if (pathKey(path.resolve(d)) === stop) return d;
     const up = path.dirname(d);
     if (up === d) return path.dirname(schema);
     d = up;
@@ -309,8 +310,99 @@ async function rows(root, id, opts = {}) {
 
 // Lecture seule ? (heuristique : premier mot-clé de chaque instruction)
 function isReadOnly(sql) {
+  const parsed = readStatements(sql);
+  if (parsed) return parsed.every(({ code }) => /^(select|with|explain|show|table|values)\b/i.test(code.trim()) && !/\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i.test(code));
   const stmts = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').split(';').map((s) => s.trim()).filter(Boolean);
   return stmts.length > 0 && stmts.every((s) => /^(select|with|explain|show|table|values)\b/i.test(s) && !/\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i.test(s.replace(/'(?:[^']|'')*'/g, '')));
+}
+
+// Découpage limité aux formes lexicales non ambiguës : les autres lots restent
+// envoyés tels quels au serveur (notamment les chaînes dépendant de SET).
+function readStatements(sql) {
+  const statements = [];
+  let start = 0, i = 0, content = false, code = '';
+  while (i < sql.length) {
+    const c = sql[i], n = sql[i + 1];
+    if (/\s/.test(c)) { code += ' '; i++; continue; }
+    if (c === '-' && n === '-') {
+      const end = sql.slice(i + 2).search(/[\r\n]/);
+      i = end < 0 ? sql.length : i + 3 + end;
+      code += ' ';
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth) {
+        if (sql[i] === '/' && sql[i + 1] === '*') { depth++; i += 2; }
+        else if (sql[i] === '*' && sql[i + 1] === '/') { depth--; i += 2; }
+        else i++;
+      }
+      if (depth) return null;
+      code += ' ';
+      continue;
+    }
+    if (c === ';') {
+      if (content) statements.push({ text: sql.slice(start, i), code, offset: start });
+      start = ++i; content = false; code = '';
+      continue;
+    }
+    content = true;
+    if (c === "'" || c === '"') {
+      const quote = c;
+      const escaped = quote === "'" && /e/i.test(sql[i - 1] || '') && (i < 2 || !/[\w$\x80-\uffff]/.test(sql[i - 2]));
+      let closed = false;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === '\\' && quote === "'") {
+          if (!escaped) return null;
+          i += 2;
+        } else if (sql[i] === quote) {
+          if (sql[i + 1] === quote) i += 2;
+          else { i++; closed = true; break; }
+        } else i++;
+      }
+      if (!closed) return null;
+      code += ' ';
+    } else if (c === '$' && (i === 0 || !/[\w$\x80-\uffff]/.test(sql[i - 1]))) {
+      const tag = sql.slice(i).match(/^\$(?:[a-z_\x80-\uffff][a-z_0-9\x80-\uffff]*)?\$/i)?.[0];
+      if (!tag) { code += c; i++; continue; }
+      const end = sql.indexOf(tag, i + tag.length);
+      if (end < 0) return null;
+      i = end + tag.length;
+      code += ' ';
+    } else { code += c; i++; }
+  }
+  if (content) statements.push({ text: sql.slice(start), code, offset: start });
+  return statements.length ? statements : null;
+}
+
+function queryResult(client, text, bounded, command = 'SELECT') {
+  return new Promise((resolve, reject) => {
+    const request = new pg.Query({ text, rowMode: 'array', ...(bounded ? { rows: MAX_ROWS + 1 } : {}) });
+    let lastRows = null, current = null, kept = [], count = 0, suspended = false;
+    // Sans callback, pg émet les lignes sans les accumuler dans Result.rows.
+    request.on('row', (row, result) => {
+      if (current !== result) { current = result; kept = []; count = 0; }
+      count++;
+      if (kept.length < MAX_ROWS) kept.push(row);
+      lastRows = { result, rows: kept };
+    });
+    if (bounded) request.handlePortalSuspended = (connection) => {
+      suspended = true;
+      connection.close({ type: 'P', name: request.portal });
+      connection.sync();
+    };
+    request.once('error', reject);
+    request.once('end', (results) => {
+      const all = Array.isArray(results) ? results : [results];
+      const result = all.filter((r) => r.fields?.length).pop() || all[all.length - 1];
+      const rows = lastRows?.result === result ? lastRows.rows : [];
+      // Un portail fermé avant CommandComplete ne connaît pas le total exact.
+      resolve({ ...result, rows, command: result.command || (bounded ? command : null), truncated: suspended || (lastRows?.result === result && count > MAX_ROWS) });
+    });
+    client.query(request);
+  });
 }
 
 async function query(root, id, sql, opts = {}) {
@@ -322,13 +414,29 @@ async function query(root, id, sql, opts = {}) {
     client = await pool.connect();
     const t0 = Date.now();
     await client.query(readOnly ? 'begin read only' : 'begin');
-    let r = await client.query({ text: sql, rowMode: 'array' });
+    const statements = readOnly && readStatements(sql);
+    let r;
+    if (statements) {
+      for (const statement of statements) {
+        const command = statement.code.trim().match(/^(show|explain)\b/i)?.[1].toUpperCase() || 'SELECT';
+        let result;
+        try { result = await queryResult(client, statement.text, true, command); }
+        catch (e) {
+          if (Number(e.position) > 0) e.position = String(Number(e.position) + Array.from(sql.slice(0, statement.offset)).length);
+          throw e;
+        }
+        if (!r?.fields?.length || result.fields?.length) r = result;
+      }
+    } else {
+      // Garder le protocole simple pour les écritures/transactions/lots mixtes :
+      // toutes leurs instructions s'exécutent, y compris au-delà de RETURNING.
+      r = await queryResult(client, sql, false);
+    }
     await client.query(readOnly ? 'rollback' : 'commit');
     const ms = Date.now() - t0;
-    if (Array.isArray(r)) r = r.filter((x) => x.fields?.length).pop() || r[r.length - 1];
     const fields = r.fields || [];
     const all = r.rows || [];
-    return { ok: true, readOnly, command: r.command, rowCount: r.rowCount, columns: fields.map((f) => ({ name: f.name, type: OID[f.dataTypeID] || String(f.dataTypeID) })), rows: all.slice(0, MAX_ROWS).map((x) => x.map(cell)), truncated: all.length > MAX_ROWS, ms };
+    return { ok: true, readOnly, command: r.command, rowCount: r.rowCount, columns: fields.map((f) => ({ name: f.name, type: OID[f.dataTypeID] || String(f.dataTypeID) })), rows: all.map((x) => x.map(cell)), truncated: !!r.truncated, ms };
   } catch (e) {
     try { await client?.query('rollback'); } catch {}
     return errInfo(e);

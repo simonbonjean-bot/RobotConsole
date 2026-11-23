@@ -1,10 +1,11 @@
-// Run with: node_modules\.bin\electron scripts\test-screen-removal.js
+// Run with: node scripts/test-screen-removal.js
+if (!process.versions.electron) require('./electron-test')(__filename);
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'robotconsole-screen-removal-'));
+const temp = process.env.ROBOTCONSOLE_TEST_TEMP;
+if (!temp) throw new Error('Run this test with Node so the parent can clean up the Chromium profile.');
 app.setPath('userData', path.join(temp, 'profile'));
 app.disableHardwareAcceleration();
 
@@ -178,5 +179,3 @@ app.whenReady().then(async () => {
   console.error(error);
   app.exit(1);
 });
-
-process.on('exit', () => fs.rmSync(temp, { recursive: true, force: true }));

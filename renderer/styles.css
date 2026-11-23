@@ -22,6 +22,7 @@ button { font: inherit; color: inherit; }
   -webkit-app-region: drag; border-bottom: 1px solid var(--border);
 }
 #topbar > * { -webkit-app-region: no-drag; }
+html[data-platform="darwin"] #topbar { padding-left: 90px; padding-right: 14px; }
 #topbar .tb-spacer { flex: 1; -webkit-app-region: drag; }
 .brand { font-weight: 650; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; -webkit-app-region: drag; }
 .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: conic-gradient(#ff6b9a, #ffc76b, #6bffb8, #6bc7ff, #b06bff, #ff6b9a); }

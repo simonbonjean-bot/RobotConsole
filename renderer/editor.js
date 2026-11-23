@@ -6,8 +6,38 @@
   const closedKeys = [];
   const KEEP_CLOSED = 20;
   const editors = new Set();
-  const norm = (p) => p.toLowerCase();
+  const norm = (p) => Platform.pathKey(p);
   const T = (s, ...a) => (window.I18n ? I18n.t(s, ...a) : s.replace(/\{(\d+)\}/g, (_, i) => a[i]));
+
+  function preview(container, file, info) {
+    const { h } = UI;
+    const body = h('div', 'file-preview');
+    if (info.kind === 'image') {
+      body.classList.add('pv-image');
+      const img = h('img');
+      img.alt = file.split(/[\\/]/).pop();
+      img.src = info.dataUrl;
+      body.append(img);
+    } else if (info.kind === 'pdf') {
+      const pdf = h('embed', 'file-pdf');
+      pdf.type = 'application/pdf';
+      pdf.title = file.split(/[\\/]/).pop();
+      pdf.src = info.dataUrl;
+      body.append(pdf);
+    } else if (info.kind === 'docx') {
+      body.classList.add('file-docx');
+      body.innerHTML = DOMPurify.sanitize(info.html, {
+        FORBID_TAGS: ['a', 'form', 'input', 'style'], FORBID_ATTR: ['srcset'],
+        ALLOWED_URI_REGEXP: /^data:image\/(?:png|jpeg|gif|webp|bmp);base64,/i, ALLOW_DATA_ATTR: false,
+      });
+    } else {
+      body.append(h('div', 'pv-empty', 'Aperçu indisponible pour ce format.'));
+    }
+    const external = h('button', 'tb-btn small file-external', "Ouvrir avec l'application par défaut");
+    external.addEventListener('click', () => window.api.openPath(file));
+    container.append(external, body);
+  }
+  window.FilePreview = { render: preview };
 
   function load() {
     if (loading) return loading;
@@ -378,12 +408,12 @@
 
     // ---------- Zoom (Ctrl+molette, Ctrl+= / Ctrl+- / Ctrl+0) ----------
     const onWheel = (e) => {
-      if (!e.ctrlKey) return;
+      if (!Platform.primary(e)) return;
       e.preventDefault(); e.stopPropagation();
       zoom(e.deltaY < 0 ? 1 : -1);
     };
     const onKey = (e) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!Platform.primary(e) || e.altKey) return;
       let d = null;
       if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') d = 1;
       else if (e.key === '-' || e.code === 'NumpadSubtract') d = -1;
@@ -399,7 +429,7 @@
     // pas seulement quand le texte a le focus
     const zone = container.parentElement || container;
     const onZoneKey = (e) => {
-      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      if (!Platform.primary(e) || e.altKey || e.shiftKey) return;
       if (mHost.contains(e.target)) return; // dans Monaco (texte ou recherche) : Monaco s'en charge
       const k = e.key.toLowerCase();
       const id = k === 'f' ? 'actions.find' : k === 'h' ? 'editor.action.startFindReplaceAction' : k === 'g' ? 'editor.action.gotoLine' : null;
@@ -609,11 +639,24 @@
       let gen = 0;
       const mountFile = (file, line) => {
         const my = ++gen;
-        open(host, file, { line, onDirty: setDirty }).then((ctl) => {
+        const mount = async () => {
+          const info = await window.api.readFile(file, 8192);
+          if (tab.disposed || my !== gen) return;
+          const isText = info.kind === 'text';
+          find.classList.toggle('hidden', !isText);
+          save.classList.toggle('hidden', !isText);
+          if (!isText) { preview(host, file, info); return; }
+          const ctl = await open(host, file, { line, onDirty: setDirty });
           if (tab.disposed || my !== gen) { ctl.dispose(); return; }
           tab.ctl = ctl;
           find.before(...ctl.historyButtons());
-        }).catch((e) => { if (my === gen) host.innerHTML = `<div class="pv-empty">${UI.esc(e.message)}</div>`; });
+        };
+        mount().catch((e) => { if (my === gen && !tab.disposed) {
+          find.classList.add('hidden');
+          save.classList.add('hidden');
+          host.innerHTML = `<div class="pv-empty">${UI.esc(e.message)}</div>`;
+          preview(host, file, { kind: 'binary' });
+        } });
       };
       mountFile(spec.file, spec.line);
 
@@ -639,7 +682,7 @@
           if (!ok) { showPath(); return; }
           try { await window.api.createFile(p); } catch (e) { UI.toast(e.message, { kind: 'error' }); showPath(); return; }
         }
-        try { await window.api.readText(p); } catch (e) { UI.toast(e.message, { kind: 'error' }); showPath(); return; }
+        try { await window.api.readFile(p, 8192); } catch (e) { UI.toast(e.message, { kind: 'error' }); showPath(); return; }
         const isDirty = !!tab.ctl?.dirty;
         const cur = UI.esc(tab.file.split(/[\\/]/).pop());
         const choice = await UI.dialog({
@@ -669,7 +712,10 @@
       save.addEventListener('click', () => tab.ctl?.save().catch((e) => UI.toast(e.message, { kind: 'error' })));
       more.addEventListener('click', () => UI.menu([
         ...(tab.ctl?.menuItems() || []),
-        { label: 'Recharger depuis le disque', icon: '⟳', action: () => tab.ctl?.revert() },
+        { label: 'Recharger depuis le disque', icon: '⟳', action: () => {
+          if (tab.ctl) tab.ctl.revert();
+          else { host.replaceChildren(); mountFile(tab.file); }
+        } },
         { label: "Ouvrir avec l'application par défaut", icon: '↗', action: () => window.api.openPath(tab.file) },
         { label: "Afficher dans l'Explorateur Windows", icon: '📍', action: () => window.api.showItem(tab.file) },
         { label: 'Copier le chemin', icon: '⧉', action: () => window.api.writeClipboard(tab.file) },

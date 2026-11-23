@@ -3,6 +3,8 @@
 // et rejoue la sortie récente quand l'application se reconnecte.
 const net = require('net');
 const pty = require('@lydell/node-pty');
+const { listenLocal } = require('./local-socket');
+const SocketWriter = require('./socket-writer');
 
 const PIPE = process.argv[2];
 const MAX_BUFFER = 400 * 1024; // sortie conservée par session (caractères)
@@ -11,9 +13,28 @@ const IDLE_EXIT_MS = 60 * 1000; // sans client ni session : on s'arrête
 const sessions = new Map(); // id -> { p, buf, alive, exitCode, shellId }
 let client = null;
 let idleTimer = null;
+let writer = null;
+let transportBlocked = false;
+let flowControl = false;
+const HIGH_WATER = 256 * 1024;
+const LOW_WATER = 64 * 1024;
+
+function regulate(s) {
+  const pause = !!client && (transportBlocked || (flowControl && s.pending >= HIGH_WATER) || (s.paused && flowControl && s.pending > LOW_WATER));
+  if (!s.alive || pause === !!s.paused) return;
+  s.paused = pause;
+  if (pause) s.p.pause(); else s.p.resume();
+}
 
 function send(msg) {
-  if (client && !client.destroyed) client.write(JSON.stringify(msg) + '\n');
+  if (writer && client && !client.destroyed) {
+    if (msg.t === 'data' && flowControl) {
+      const s = sessions.get(msg.id);
+      if (s) { s.pending += msg.data.length; regulate(s); }
+    }
+    const target = client;
+    writer.send(msg).catch((error) => { if (client === target && !target.destroyed) { console.error('[ptyhost:send]', error); target.destroy(); } });
+  }
 }
 
 function scheduleIdleExit() {
@@ -33,7 +54,7 @@ function create(m) {
     send({ t: 'exit', id: m.id, code: -1, error: String(err.message || err) });
     return;
   }
-  const s = { p, segs: [{ cols: p.cols, rows: p.rows, data: '' }], size: 0, alive: true, exitCode: null, shellId: m.shellId, scope: m.scope || '', pid: p.pid, started: Date.now(), ended: null };
+  const s = { p, pending: 0, segs: [{ cols: p.cols, rows: p.rows, data: '' }], size: 0, alive: true, exitCode: null, shellId: m.shellId, scope: m.scope || '', pid: p.pid, started: Date.now(), ended: null };
   sessions.set(m.id, s);
 
   // Commandes de démarrage (modèles d'espace) : envoyées une par une, chaque fois que
@@ -51,9 +72,11 @@ function create(m) {
   p.onData((d) => {
     record(s, d);
     out += d;
-    if (!outTimer) outTimer = setTimeout(s.flush, 8);
+    if (out.length >= 32 * 1024) s.flush();
+    else if (!outTimer) outTimer = setTimeout(s.flush, 8);
     armInit(400);
   });
+  regulate(s);
   p.onExit(({ exitCode }) => {
     s.flush();
     s.alive = false;
@@ -96,6 +119,13 @@ function kill(id) {
 function handle(m) {
   const s = sessions.get(m.id);
   switch (m.t) {
+    case 'flow':
+      flowControl = m.enabled === true;
+      for (const x of sessions.values()) { x.pending = 0; regulate(x); }
+      break;
+    case 'ack':
+      if (s && Number.isSafeInteger(m.size) && m.size > 0) { s.pending = Math.max(0, s.pending - m.size); regulate(s); }
+      break;
     case 'hello':
       send({ t: 'sessions', list: [...sessions].map(([id, x]) => ({ id, alive: x.alive, exitCode: x.exitCode, shellId: x.shellId, scope: x.scope, pid: x.p.pid || x.pid, started: x.started, ended: x.ended })) });
       break;
@@ -125,13 +155,25 @@ function handle(m) {
 }
 
 const server = net.createServer((sock) => {
-  // Un seul client à la fois : le plus récent gagne
-  if (client && !client.destroyed) client.destroy();
-  client = sock;
-  clearTimeout(idleTimer);
+  // Une sonde de socket ne doit pas déconnecter le véritable client.
+  sock.setTimeout(5000, () => sock.destroy());
   sock.setEncoding('utf8');
   let acc = '';
   sock.on('data', (chunk) => {
+    if (client !== sock) {
+      if (client && !client.destroyed) client.destroy();
+      client = sock;
+      transportBlocked = false;
+      flowControl = false;
+      writer = new SocketWriter(sock, (blocked) => {
+        if (client !== sock) return;
+        transportBlocked = blocked;
+        for (const s of sessions.values()) regulate(s);
+      });
+      for (const s of sessions.values()) { s.pending = 0; regulate(s); }
+      clearTimeout(idleTimer);
+      sock.setTimeout(0);
+    }
     acc += chunk;
     let i;
     while ((i = acc.indexOf('\n')) >= 0) {
@@ -141,10 +183,18 @@ const server = net.createServer((sock) => {
       try { handle(JSON.parse(line)); } catch {}
     }
   });
-  const gone = () => { if (client === sock) { client = null; scheduleIdleExit(); } };
+  const gone = () => {
+    if (client === sock) {
+      client = null; writer = null; transportBlocked = false; flowControl = false;
+      for (const s of sessions.values()) { s.pending = 0; regulate(s); }
+      scheduleIdleExit();
+    }
+  };
   sock.on('close', gone);
   sock.on('error', gone);
 });
 
-server.on('error', () => process.exit(1)); // un autre hôte écoute déjà
-server.listen(PIPE, scheduleIdleExit);
+listenLocal(server, PIPE).then(() => {
+  server.on('error', (error) => { console.error('[ptyhost]', error); process.exit(1); });
+  scheduleIdleExit();
+}, (error) => { console.error('[ptyhost]', error); process.exit(1); });

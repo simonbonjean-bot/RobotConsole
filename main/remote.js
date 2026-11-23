@@ -305,9 +305,9 @@ class Remote {
         if (!allowed()) return reply({ error: 'Accès refusé' });
         try {
           if (!this.getSpeechHistory) throw new Error('Historique indisponible');
-          const entries = await this.getSpeechHistory(key);
+          const page = await this.getSpeechHistory(key, { cursor: m.cursor ?? null, limit: m.limit ?? 100 });
           if (!allowed()) return reply({ error: 'Accès retiré' });
-          reply({ entries });
+          reply(page);
         } catch (error) {
           console.error('[remote:speechHistory]', error);
           reply({ error: String(error.message || error) });
@@ -319,6 +319,10 @@ class Remote {
         const mode = this._sessionMode(id);
         if (!mode) return this._send(ws, { t: 'attached', id, found: false, denied: true });
         ws.subs.add(id);
+        if (m.replay === false) {
+          this._send(ws, { t: 'attached', id, found: true, mode });
+          break;
+        }
         const r = await this.ptyHost.attach(id); // sans cols/rows : la taille du PC ne change pas
         this._send(ws, { t: 'attached', id, found: !!r?.found, data: r?.data || '', segs: r?.segs, alive: r?.alive, exitCode: r?.exitCode, cols: r?.cols || 80, rows: r?.rows || 24, mode });
         break;

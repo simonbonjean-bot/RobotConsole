@@ -8,6 +8,7 @@ const fsp = fs.promises;
 const path = require('path');
 const os = require('os');
 const Workspace = require('./workspace');
+const { quoteShell: q, pathKey, withinPath, killTree } = require('./platform');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'out', 'target', '.venv', 'venv', '__pycache__', '.robot', 'vendor', 'bin', 'obj', '.turbo', 'playwright-report', 'test-results']);
 const CATEGORIES = {
@@ -28,7 +29,6 @@ const runs = new Map(); // runId -> { child, stopped }
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 const readText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
 const exists = (p) => fs.existsSync(p);
-const q = (s) => `"${String(s).replace(/"/g, '\\"')}"`;
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const rel = (root, f) => path.relative(root, f).split(path.sep).join('/');
 const cfgPath = (root) => path.join(root, Workspace.DIR, 'tests.json');
@@ -86,7 +86,7 @@ function python(dir) {
     const p = path.join(dir, v, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     if (exists(p)) return q(p);
   }
-  return 'python';
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
 // ---------- Détection : génère la liste des suites ----------
@@ -172,7 +172,7 @@ async function generate(root) {
       }
     }
     // Les sous-paquets d'un monorepo ont leurs propres suites : la racine les ignore
-    const subPkgs = pkgDirs.filter((d) => d !== dir && d.toLowerCase().startsWith(dir.toLowerCase() + path.sep)).map((d) => `${rel(dir, d)}/**`);
+    const subPkgs = pkgDirs.filter((d) => pathKey(d) !== pathKey(dir) && withinPath(d, dir)).map((d) => `${rel(dir, d)}/**`);
     const pwExclude = [...(pwDir ? [`${pwDir}/**`] : []), ...subPkgs];
 
     // Vitest
@@ -455,7 +455,7 @@ async function runSuite(root, s, n, onOut, state) {
   delete env.NO_COLOR;
   if (s.framework === 'playwright') env.PLAYWRIGHT_JSON_OUTPUT_NAME = out;
   const code = await new Promise((resolve) => {
-    const child = spawn(cmd, { cwd: dir, shell: true, windowsHide: true, env });
+    const child = spawn(cmd, { cwd: dir, shell: true, windowsHide: true, detached: process.platform !== 'win32', env });
     state.child = child;
     const fwd = (d) => { const t = d.toString(); stdout += t; onOut(s.framework === 'go' ? goPretty(t) : t.replace(/\r?\n/g, '\r\n')); };
     child.stdout.on('data', fwd);
@@ -481,8 +481,7 @@ function stop(runId) {
   st.stopped = true;
   const child = st.child;
   if (!child) return;
-  if (process.platform === 'win32') execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
-  else child.kill('SIGTERM');
+  killTree(child);
 }
 
 // ---------- Lecture des résultats ----------

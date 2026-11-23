@@ -3,13 +3,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 const on = (channel) => (cb) => ipcRenderer.on(channel, (_e, ...args) => cb(...args));
 
 contextBridge.exposeInMainWorld('api', {
+  platform: process.platform,
   speechPublish: (robots) => ipcRenderer.send('speech:publish', robots),
   speechRecord: (entry) => ipcRenderer.invoke('speech:record', entry),
-  speechHistory: (rid) => ipcRenderer.invoke('speech:history', rid),
+  speechHistory: (rid, options) => ipcRenderer.invoke('speech:history', rid, options),
   speechDelete: (rid, id = null) => ipcRenderer.invoke('speech:delete', rid, id),
   speechVoice: (text, volume, rid) => ipcRenderer.invoke('speech:voice', text, volume, rid),
   speechVoices: () => ipcRenderer.invoke('speech:voices'),
-  manageSpeechVoices: () => ipcRenderer.invoke('speech:manageVoices'),
   speechResult: (id, error) => ipcRenderer.send('speech:result', id, error),
   onSpeech: on('speech:say'),
   skillStatus: () => ipcRenderer.invoke('skills:status'),
@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
   resize: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
   kill: (id) => ipcRenderer.send('pty:kill', id),
   onData: on('pty:data'),
+  ackData: (id, token) => ipcRenderer.send('pty:ack', id, token),
+  onPtyDisconnect: on('pty:disconnected'),
   onExit: on('pty:exit'),
 
   // Accès à distance (téléphone / tablette)
@@ -51,7 +53,7 @@ contextBridge.exposeInMainWorld('api', {
   // Fenêtre, état et paramètres
   context: () => ipcRenderer.invoke('win:context'),
   loadState: () => ipcRenderer.invoke('state:load'),
-  saveState: (state) => ipcRenderer.send('state:save', state),
+  saveState: (state, final = false) => final ? ipcRenderer.sendSync('state:saveFinal', state) : ipcRenderer.send('state:save', state),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (s) => ipcRenderer.send('settings:save', s),
   home: () => ipcRenderer.invoke('app:home'),

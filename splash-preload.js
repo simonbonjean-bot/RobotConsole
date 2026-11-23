@@ -2,6 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('splash', {
+  platform: process.platform,
   info: () => ipcRenderer.invoke('splash:info'),
   open: (root) => ipcRenderer.send('splash:open', root),
   blank: () => ipcRenderer.send('splash:blank'),

@@ -1,0 +1,36 @@
+name: Cross-platform compatibility
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libgbm1 libasound2t64 libnss3 iproute2 lsof
+      - run: npm ci
+      - name: Configure Chromium sandbox helper
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - name: Tests (Windows and macOS)
+        if: runner.os != 'Linux'
+        run: npm test
+      - name: Tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm test

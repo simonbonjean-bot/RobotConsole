@@ -19,7 +19,7 @@
       const s = tab.s = { root: spec.root, defs: [], status: {}, selected: spec.selected || null, logSession: null };
       tab.pane.classList.add('services-pane', 'tool-pane');
       const bar = h('div', 'tool-bar');
-      s.badge = h('span', 'tool-badge', `🛰 ${esc((CAI.ws?.root?.toLowerCase() === spec.root?.toLowerCase() ? CAI.ws.name : spec.root.split(/[\\/]/).pop()) || 'Services')}`);
+      s.badge = h('span', 'tool-badge', `🛰 ${esc((Platform.pathKey(CAI.ws?.root) === Platform.pathKey(spec.root) ? CAI.ws?.name : spec.root.split(/[\\/]/).pop()) || 'Services')}`);
       s.sum = h('div', 'tt-summary');
       const btn = (html, title, fn, cls = 'tb-btn small') => { const b = h('button', cls, html); b.title = title; b.addEventListener('click', fn); return b; };
       bar.append(s.badge, s.sum, h('div', 'tb-spacer'),
@@ -164,7 +164,7 @@
       `<div class="dk-sub mono">${esc(d.command || '')}</div>` +
       `<div class="dk-stats">${up ? `<span class="sv-uptime" title="Démarré le ${new Date(st.started).toLocaleString('fr-FR')}">⏱ ${UI.fmtDuration(Date.now() - st.started)}</span>` : st.ended ? `<span title="${new Date(st.ended).toLocaleString('fr-FR')}">⏹ il y a ${UI.fmtDuration(Date.now() - st.ended)}${st.exitCode != null ? ` · code ${st.exitCode}` : ''}</span>` : ''}` +
       `${up && st.pid ? `<span title="PID du processus">#${st.pid}</span>` : ''}${up && st.mem ? `<span title="Mémoire (${st.procs} processus)">▦ ${UI.fmtBytes(st.mem)}</span>` : ''}${st.restarts ? `<span title="Redémarrages automatiques">♻ ${st.restarts}</span>` : ''}` +
-      `${d.cwd ? `<span title="Dossier">📁 ${esc(d.cwd)}</span>` : ''}</div>` + (ports ? `<div class="dk-ports">${ports}</div>` : '');
+      `${d.cwd ? `<span title="Dossier">📁 ${esc(d.cwd)}</span>` : ''}${st.probeError ? `<span title="${esc(st.probeError)}">⚠ ${esc(st.probeError)}</span>` : ''}</div>` + (ports ? `<div class="dk-ports">${ports}</div>` : '');
     const actions = h('div', 'dk-actions');
     const b = (html, title, fn, extra = '') => { const x = h('button', 'icon-btn ' + extra, html); x.title = title; x.addEventListener('click', (ev) => { ev.stopPropagation(); fn(ev); }); actions.appendChild(x); return x; };
     if (up) {
@@ -217,7 +217,7 @@
       { label: 'Modifier…', icon: '✎', action: () => editService(tab, d) },
       { label: 'Dupliquer', icon: '⧉', action: () => save(tab, [...s.defs, { ...d, id: uniqueId(s, d.id), name: `${d.name || d.id} (copie)`, autostart: false }]) },
       { label: 'Copier la commande', icon: '⧉', action: () => api.writeClipboard(d.command) },
-      { label: 'Ouvrir un terminal dans son dossier', icon: '>_', action: () => CAI.openTab(tab.space, { kind: 'terminal', cwd: d.cwd ? `${s.root}\\${d.cwd}` : s.root }) },
+      { label: 'Ouvrir un terminal dans son dossier', icon: '>_', action: () => CAI.openTab(tab.space, { kind: 'terminal', cwd: d.cwd ? (/^[a-z]:|^[\\/]/i.test(d.cwd) ? d.cwd : Platform.joinPath(s.root, d.cwd)) : s.root }) },
       { label: 'Supprimer', icon: '🗑', danger: true, action: async () => {
         if (!(await UI.confirm('Supprimer le service ?', `<b>${esc(d.name || d.id)}</b> sera retiré de services.json${up ? ' et arrêté' : ''}.`, { ok: 'Supprimer', danger: true }))) return;
         if (up) await api.svcStop(s.root, d.id);
@@ -230,7 +230,7 @@
     const s = tab.s;
     return [
       { label: 'Suggestions depuis le projet…', icon: '✨', action: () => suggest(tab) },
-      { label: 'Modifier services.json', icon: '✎', action: () => CAI.openFile(tab.space, `${s.root}\\.robot\\services.json`) },
+      { label: 'Modifier services.json', icon: '✎', action: () => CAI.openFile(tab.space, Platform.joinPath(s.root, '.robot', 'services.json')) },
       { label: 'Recharger la configuration', icon: '⟳', action: () => api.svcReload(s.root) },
       '-',
       { label: 'Redémarrer tous les services lancés', icon: '⟳', action: () => s.defs.filter((d) => isUp(s.status[d.id])).forEach((d) => restart(tab, d)) },
@@ -288,7 +288,7 @@
     const pick = h('button', 'icon-btn', '📂');
     pick.addEventListener('click', async () => {
       const p = await api.pickFolder(s.root);
-      if (p) cwd.value = p.toLowerCase().startsWith(s.root.toLowerCase()) ? p.slice(s.root.length).replace(/^[\\/]/, '') : p;
+      if (p) cwd.value = Platform.withinPath(p, s.root) ? p.slice(s.root.replace(/[\\/]+$/, '').length).replace(/^[\\/]/, '') : p;
     });
     cwdWrap.append(cwd, pick);
     field('Dossier', cwdWrap, 'Relatif au workspace');
@@ -417,7 +417,7 @@
     if (tab) tab.s.term.write(`\r\n\x1b[90m[${I18n.t('terminé, code {0}', code)}]\x1b[0m\r\n`);
   });
   api.onSvcStatus((root, snap) => {
-    for (const tab of tabs) if (tab.s.root.toLowerCase() === root.toLowerCase()) update(tab, snap);
+    for (const tab of tabs) if (Platform.pathKey(tab.s.root) === Platform.pathKey(root)) update(tab, snap);
   });
 
   (window.TabKinds = window.TabKinds || {}).services = ServicesTab;

@@ -75,7 +75,7 @@
   function specFor(m) {
     if (m.kind === 'browser') return { kind: 'browser', url: m.url || 'about:blank', model: { id: m.id, icon: m.icon || '🌐', name: m.name } };
     const root = CAI.ws?.root;
-    const abs = (p) => (p && root && !/^[a-z]:|^[\\/]/i.test(p) ? `${root}\\${p.replace(/\//g, '\\')}` : p);
+    const abs = (p) => (p && root && !/^[a-z]:|^[\\/]/i.test(p) ? Platform.joinPath(root, p) : p);
     const dir = abs(m.dir) || root || undefined;
     const base = m.kind === 'terminal' || !m.kind
       ? { kind: 'terminal', shellId: m.shellId || undefined, cwd: dir, commands: m.commands || '' }
@@ -90,14 +90,14 @@
 
   // Modèle d'onglet (non enregistré) décrivant un onglet ouvert
   function tabToModel(tab) {
-    const s = TabKinds[tab.kind].serialize(tab);
+    const s = CAI.serializeTab ? CAI.serializeTab(tab) : TabKinds[tab.kind].serialize(tab);
     const m = {
       id: uid(), name: tab.title, autoTitle: !tab.customTitle, icon: tab.icon || tab.model?.icon || KINDS[tab.kind]?.icon || '>_', kind: tab.kind,
       url: s.url,
       shellId: s.shellId || '', dir: s.cwd || s.root || '', commands: (s.commands || []).join ? (s.commands || []).join('\n') : (s.commands || ''),
     };
     const root = CAI.ws?.root;
-    if (root && m.dir && m.dir.toLowerCase().startsWith(root.toLowerCase())) m.dir = m.dir.slice(root.length).replace(/^[\\/]/, '');
+    if (root && m.dir && Platform.withinPath(m.dir, root)) m.dir = m.dir.slice(root.replace(/[\\/]+$/, '').length).replace(/^[\\/]/, '');
     return m;
   }
 
@@ -359,7 +359,7 @@
     const general = h('button', 'tb-btn', '🌍 Généraux');
     const project = h('button', 'tb-btn', '◆ Workspace');
     project.disabled = !CAI.ws;
-    project.title = CAI.ws ? `Enregistrés dans ${CAI.ws.name}\\.robot\\workspace.json` : 'Ouvrez un workspace';
+    project.title = CAI.ws ? `Enregistrés dans ${Platform.joinPath(CAI.ws.name, '.robot', 'workspace.json')}` : 'Ouvrez un workspace';
     general.title = 'Disponibles dans tous les projets';
     builtin.addEventListener('click', () => { presetOnly = true; refresh(); });
     general.addEventListener('click', () => { presetOnly = false; projectOnly = false; refresh(); });
@@ -652,7 +652,7 @@
         const p = await window.api.pickFolder(dir.value || CAI.ws?.root);
         if (!p) return;
         const root = CAI.ws?.root;
-        const v = root && p.toLowerCase().startsWith(root.toLowerCase()) ? p.slice(root.length).replace(/^[\\/]/, '') : p;
+        const v = root && Platform.withinPath(p, root) ? p.slice(root.replace(/[\\/]+$/, '').length).replace(/^[\\/]/, '') : p;
         dir.value = v;
         upd({ dir: v });
       });

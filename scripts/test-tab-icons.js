@@ -1,11 +1,12 @@
-// Run with: node_modules\.bin\electron scripts\test-tab-icons.js
+// Run with: node scripts/test-tab-icons.js
+if (!process.versions.electron) require('./electron-test')(__filename);
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'robotconsole-tab-icons-'));
+const temp = process.env.ROBOTCONSOLE_TEST_TEMP;
+if (!temp) throw new Error('Run this test with Node so the parent can clean up the Chromium profile.');
 app.setPath('userData', path.join(temp, 'profile'));
 app.disableHardwareAcceleration();
 
@@ -22,7 +23,7 @@ app.whenReady().then(async () => {
       <button id="anchor">Choose</button>`);
     win = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { partition: 'tab-icon-tests' } });
     await win.loadFile(fixture);
-    for (const file of ['ui.js', 'tool-icons-data.js', 'tool-icons.js', 'emoji-data.js', 'emoji-picker.js', 'model-presets.js']) {
+    for (const file of ['../shared/platform.js', 'ui.js', 'tool-icons-data.js', 'tool-icons.js', 'emoji-data.js', 'emoji-picker.js', 'model-presets.js']) {
       await win.webContents.executeJavaScript(fs.readFileSync(path.join(renderer, file), 'utf8'));
     }
     await win.webContents.executeJavaScript(`
@@ -248,5 +249,3 @@ app.whenReady().then(async () => {
   console.error(error);
   app.exit(1);
 });
-
-process.on('exit', () => fs.rmSync(temp, { recursive: true, force: true }));

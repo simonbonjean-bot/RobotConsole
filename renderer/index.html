@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self' blob:; worker-src 'self' blob:" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'self' data:; frame-src 'self' data:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self' blob:; worker-src 'self' blob:" />
   <title>RobotConsole</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -75,6 +75,7 @@
     </div>
   </div>
 
+  <script src="../shared/platform.js"></script>
   <script src="i18n-en.js"></script>
 <script src="i18n.js"></script>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
