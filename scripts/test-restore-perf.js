@@ -63,6 +63,8 @@ app.whenReady().then(async () => {
       };
       ${functions}
       const visible = makeSpace(), hidden = makeSpace();
+      const retired = openTab(hidden, { kind: 'subscriptions' }, { defer: true });
+      assert(retired === null && hidden.tabs.length === 0, 'Legacy model usage tabs are not restored or mounted');
       const cold = openTab(hidden, { kind: 'explorer', root: 'folder' }, { defer: true });
       const terminal = openTab(hidden, { kind: 'terminal', sessionId: 'live-shell', cwd: 'cwd' }, { defer: true });
       const attachOnly = openTab(hidden, { kind: 'terminal', sessionId: 'service-shell', attachOnly: true }, { defer: true });

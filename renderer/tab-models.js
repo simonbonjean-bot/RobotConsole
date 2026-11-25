@@ -13,7 +13,6 @@
     tests: { label: 'Tests', icon: '🧪' },
     docker: { label: 'Docker', icon: '🐳' },
     services: { label: 'Services', icon: '🛰' },
-    subscriptions: { label: 'Abonnements IA', icon: '%' },
     prisma: { label: 'Prisma / BDD', icon: '◆' },
     graphify: { label: 'Graphify', icon: '🕸' },
   };
@@ -62,7 +61,7 @@
   }
   const presets = (type) => (window.ModelPresets?.[type] || []).map((m) => ({ ...JSON.parse(JSON.stringify(m)), builtin: true }));
   const presetVisible = (id) => !(Settings.data.hiddenPresetIds || []).includes(id);
-  function all(type = 'tab') { return [...wsModels(type), ...generalList(type), ...presets(type).filter((m) => presetVisible(m.id))]; }
+  function all(type = 'tab') { return [...wsModels(type), ...generalList(type), ...presets(type).filter((m) => presetVisible(m.id))].filter((m) => type !== 'tab' || m.kind !== 'subscriptions'); }
   const find = (id, type = 'tab') => all(type).find((m) => m.id === id) || presets(type).find((m) => m.id === id);
 
   function iconHtml(icon) {

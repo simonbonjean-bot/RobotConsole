@@ -78,6 +78,15 @@
     return out;
   }
 
+  function searchEmojis(query) {
+    const data = window.EMOJI_DATA || { groups: [], emojis: [] };
+    const groups = norm(query).trim().split(/\s+/).filter(Boolean).map(termsFor);
+    return data.emojis.filter(([emoji, name, group]) => {
+      const label = norm(data.groups[group][1]);
+      return groups.every((alternatives) => alternatives.some((term) => emoji.includes(term) || norm(name).includes(term) || label.includes(term)));
+    });
+  }
+
   function loadRecent() { try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; } }
   function pushRecent(icon) {
     try {
@@ -230,11 +239,7 @@
       if (toolMode) { renderTools(); return; }
       const tokens = norm(q).split(/\s+/).filter(Boolean);
       const groups = tokens.map(termsFor);
-      const hits = data.emojis.filter((e) => {
-        const n = e[1];
-        const label = norm(data.groups[e[2]][1]);
-        return groups.every((alts) => alts.some((t) => n.includes(t) || label.includes(t)));
-      }).map((e) => e[0]);
+      const hits = searchEmojis(q).map((emoji) => emoji[0]);
       for (const ic of opts.suggestions || []) if (!hits.includes(ic) && groups.every((alts) => alts.some((t) => (ic === '>_' ? 'terminal console shell' : '').includes(t)))) hits.unshift(ic);
       grid.innerHTML = '';
       cats.classList.add('hidden');
@@ -267,5 +272,5 @@
     current = () => { box.remove(); document.removeEventListener('mousedown', off, true); };
   }
 
-  window.EmojiPicker = { open, close };
+  window.EmojiPicker = { open, close, search: searchEmojis };
 })();

@@ -17,7 +17,9 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 - **Drag-and-drop organization**: reorder tabs, send them to another robot or screen, or drop a tab into an empty part of the robot bar to create a new space.
 - **Screens**: several sets of spaces in the same window, like virtual desktops (`Ctrl+Alt+1…9`, `Ctrl+Alt+←/→`).
 - **Multiple windows**: a space can be detached into another window, then brought back by drag and drop.
+- **Workspace switcher**: the top-left workspace menu lists open workspaces and their secondary windows. Select one to focus its existing window, restoring it if minimized; the current window is marked.
 - **Session restore**: layout, tabs and terminals come back after a restart (terminals run in a separate process and survive a reload).
+- **Status bar**: manage persistent terminal sessions and check Copilot, Codex and Claude subscription quotas without opening a tool tab.
 
 ### Tab types
 
@@ -28,7 +30,6 @@ RobotConsole brings your terminals, a file explorer with Git, your tests, your D
 | **🧪 Tests** | Discovers suites and groups them by category (unit, business rules, integration, end-to-end…). Supports Vitest, Jest, Playwright, node:test, pytest, Go, Cargo and custom commands. Run all suites or retry failures, inspect output, filter results and enable watch mode. |
 | **🐳 Docker** | Containers grouped by compose file: status, health, ports, CPU, memory, actions and live logs. |
 | **🛰 Services** | Workspace services (`.robot/services.json`): start / stop, detected ports, HTTP health checks, automatic restart, interactive logs. |
-| **% AI subscriptions** | Copilot, Codex / ChatGPT and Claude subscription quotas, reset times and availability in one account-level dashboard. |
 | **◆ Prisma / DB** | Prisma schema, table diagram, data browsing, SQL console (PostgreSQL), migrations. |
 | **🕸 Graphify** | Builds and displays the project's knowledge graph with [Graphify](https://github.com/Graphify-Labs/graphify): interactive graph, report, log. |
 | **🌐 Browser** | An isolated web browser, handy for keeping `http://localhost:3000` next to your terminal. |
@@ -354,7 +355,9 @@ The core terminal, explorer/editor and browser do not require Docker or a databa
 
 ### AI subscription connectors
 
-Open **AI subscriptions** from the new-tab menu or its built-in preset. It is independent of the workspace. It reads account quotas, not API token costs, and makes no model inference calls. Refresh manually or leave the tab visible for automatic refresh every five minutes. Missing data is not displayed as zero; unlimited quotas do not show a percentage.
+Click **Model usage** in the bottom status bar for account quotas, reset times and connector settings. This replaces the AI subscriptions tab; old saved usage tabs are no longer restored. It is independent of the workspace, reads account quotas rather than API token costs, and makes no model inference calls. The compact summary shows each provider's highest reported quota consumption. Refresh manually or let the status bar refresh every five minutes while the window is visible. Missing data is not displayed as zero; unlimited quotas do not show a percentage.
+
+Click **Sessions** in the same bar to list all RobotConsole PTY sessions, including other workspaces and services. The panel shows PID, start time, duration, directory or scope, and whether a session is linked to this window, another window or running in the background. **Show** reveals a local terminal; **Stop** requires confirmation and affects its shell and running programs. Ended sessions can be removed to release their retained history. Stopping a managed service also suppresses its pending automatic restart. Closing or restarting the app still preserves sessions.
 
 - **Copilot** uses the bundled official Microsoft Copilot SDK runtime and its existing local authentication (`account.getQuota`). Sign in with Copilot first.
 - **Codex** requires Codex CLI on PATH, signed in with a ChatGPT account (`codex login`). The connector starts a short-lived `codex app-server`, calls `account/rateLimits/read`, then stops it.

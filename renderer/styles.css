@@ -46,7 +46,7 @@ html[data-platform="darwin"] #topbar { padding-left: 90px; padding-right: 14px; 
 .crew-add:hover { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
 
 /* ---------- Conteneur des espaces ---------- */
-#spaces { position: absolute; inset: 40px 0 0 0; padding: 8px; display: grid; gap: 8px; }
+#spaces { position: absolute; inset: 40px 0 var(--status-bar-height, 0px) 0; padding: 8px; display: grid; gap: 8px; }
 #spaces.cols, #spaces.rows { display: flex; gap: 0; }
 #spaces.rows { flex-direction: column; }
 #spaces.maximized > .space:not(.max), #spaces.maximized > .splitter { display: none !important; }

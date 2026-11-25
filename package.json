@@ -12,6 +12,7 @@
     "install:espeak": "node scripts/check-speech.js",
     "test:unit": "node --test scripts/test-platform.js scripts/test-speech.js scripts/test-subscriptions.js scripts/test-remote-editor.js scripts/test-remote-speech.js scripts/test-explorer-perf.js scripts/test-directory-perf.js scripts/test-prisma-perf.js scripts/test-speech-perf.js scripts/test-terminal-perf.js scripts/test-state-perf.js",
     "test:perf": "node --test scripts/test-explorer-perf.js scripts/test-directory-perf.js scripts/test-prisma-perf.js scripts/test-speech-perf.js scripts/test-terminal-perf.js scripts/test-state-perf.js && node scripts/test-restore-perf.js && node scripts/test-pty.js && node scripts/test-remote-terminal.js",
+    "test:perf:terminal": "node scripts/test-terminal-latency.js",
     "test:platform": "node --test scripts/test-platform.js && node scripts/test-pty.js",
     "test:ui": "node scripts/run-ui-tests.js",
     "test:speech": "node --test scripts/test-speech.js && node scripts/test-speech-ui.js && node scripts/test-speech-app.js",

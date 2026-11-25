@@ -120,6 +120,20 @@ class Services {
     this.push(root);
   }
 
+  async terminateSession(sessionId) {
+    const ref = this.bySession.get(sessionId);
+    const st = ref && this.ws.get(ref.root)?.st.get(ref.id);
+    if (!st || st.sessionId !== sessionId) return this.ptyHost.terminate(sessionId);
+    const previous = st.manualStop;
+    st.manualStop = true;
+    try { await this.ptyHost.terminate(sessionId); }
+    catch (error) { st.manualStop = previous; throw error; }
+    st.state = 'stopped';
+    st.ended = Date.now();
+    st.ports = [];
+    this.push(ref.root);
+  }
+
   async restart(root, id) {
     this.stop(root, id);
     await new Promise((r) => setTimeout(r, 400));
@@ -147,7 +161,7 @@ class Services {
         st.state = 'restarting';
         setTimeout(() => {
           const cur = w.st.get(ref.id);
-          if (cur === st) { this.start(ref.root, ref.id).then(() => { const n = w.st.get(ref.id); if (n) { n.restarts = st.restarts + 1; n.crashTimes = recent; } }); }
+          if (cur === st && !st.manualStop) { this.start(ref.root, ref.id).then(() => { const n = w.st.get(ref.id); if (n) { n.restarts = st.restarts + 1; n.crashTimes = recent; } }); }
         }, 1500);
       }
     }

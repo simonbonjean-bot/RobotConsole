@@ -66,7 +66,7 @@ body.secondary-window #ws-badge::after {
 
 /* Barre des robots plus haute */
 #topbar { height: 58px; }
-#spaces { inset: 58px 0 0 0 !important; }
+#spaces { top: 58px !important; }
 #crew { align-self: stretch; }
 #crew .crew-bot { width: 40px; height: 40px; }
 #crew .crew-bot.has-tool { width: 76px; }
@@ -84,7 +84,7 @@ body.secondary-window #ws-badge::after {
 #crew .crew-bot { width: 46px; height: 46px; }
 #crew .crew-bot.has-tool { width: 86px; }
 #topbar { height: 62px; }
-#spaces { inset: 62px 0 0 0 !important; }
+#spaces { top: 62px !important; }
 
 .tab { height: 34px; }
 .tab-icon { font-size: 18px; line-height: 1; min-width: 20px; justify-content: center; }

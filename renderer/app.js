@@ -38,7 +38,6 @@
     tests: { icon: '🧪', label: 'Tests' },
     docker: { icon: '🐳', label: 'Docker' },
     services: { icon: '🛰', label: 'Services' },
-    subscriptions: { icon: '%', label: 'Abonnements IA' },
     prisma: { icon: '◆', label: 'Prisma / BDD' },
     graphify: { icon: '🕸', label: 'Graphify' },
   };
@@ -466,11 +465,29 @@
     }
   }
 
-  function workspaceMenu() {
+  async function workspaceMenu() {
     const recentItems = ctx.recent.filter((r) => !ctx.ws || Platform.pathKey(r.root) !== Platform.pathKey(ctx.ws.root)).map((r) => ({
       label: r.name, hint: r.root.length > 40 ? '…' + r.root.slice(-38) : r.root, icon: '◆', action: () => api.openWorkspace(r.root),
     }));
     const items = [];
+    try {
+      const opened = await api.listOpenWorkspaces();
+      if (opened.length) {
+        items.push({ title: 'Workspaces ouverts' });
+        for (const workspace of opened) {
+          const suffix = workspace.winId === 'main' ? '' : ` · ${I18n.t('Fenêtre {0}', workspace.winId.slice(1, 4).toUpperCase())}`;
+          items.push({
+            label: workspace.name + suffix, icon: '◆', checked: workspace.current, disabled: workspace.current,
+            hint: workspace.root ? (workspace.root.length > 40 ? '…' + workspace.root.slice(-38) : workspace.root) : '',
+            action: async () => {
+              try { await api.focusWindow(workspace.wcId); }
+              catch (error) { UI.toast(error.message, { kind: 'error' }); }
+            },
+          });
+        }
+        items.push('-');
+      }
+    } catch (error) { UI.toast(error.message, { kind: 'error' }); }
     if (ctx.ws) {
       items.push({ title: `Workspace : ${ctx.ws.name}` });
       items.push({ label: 'Renommer le workspace…', icon: '✎', action: renameWorkspace });
@@ -1203,7 +1220,6 @@
     { k: 'tests', icon: '🧪', label: 'Tests', desc: 'Lancer et suivre les tests' },
     { k: 'docker', icon: '🐳', label: 'Docker', desc: 'Conteneurs et compose' },
     { k: 'services', icon: '🛰', label: 'Services', desc: 'Services surveillés' },
-    { k: 'subscriptions', icon: '%', label: 'Abonnements IA', desc: 'Quotas Copilot, Codex et Claude' },
     { k: 'prisma', icon: '◆', label: 'Prisma / BDD', desc: 'Schéma et données' },
     { k: 'graphify', icon: '🕸', label: 'Graphify', desc: 'Graphe du projet' },
   ];
@@ -1312,7 +1328,7 @@
   const allParked = h('div', 'all-parked hidden',
     '<div class="ap-title">Tous les robots sont rangés</div><div class="ap-sub">Cliquez sur un robot en haut pour ressortir son espace, ou glissez-le ici.</div><div class="ap-actions empty-actions"></div>');
   spacesEl.appendChild(allParked);
-  for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify']) {
+  for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify']) {
     const b = h('button', 'tb-btn', `${KIND_INFO[k].icon} ${KIND_INFO[k].label}`);
     b.addEventListener('click', () => openKind(null, k));
     allParked.querySelector('.ap-actions').appendChild(b);
@@ -1900,7 +1916,7 @@
       renderQuick();
       for (const b of toolGrid.querySelectorAll('.rp-tool')) b.classList.toggle('on', b.dataset.id === selectedTool());
     };
-    const toolHelp = h('div', 'rp-help', 'L\'icône affichée à côté du robot : la techno ou le sujet sur lequel travaille cet espace.');
+    const toolHelp = h('div', 'rp-help', 'L\'icône affichée à côté du robot : une techno, un sujet, un emoji ou un symbole.');
     const quick = h('div', 'rp-tool-quick');
     const renderQuick = () => {
       const sel = selectedTool();
@@ -2012,6 +2028,10 @@
   function openTab(space, spec = {}, opts = {}) {
     if (typeof spec === 'string') spec = { kind: 'terminal', shellId: spec };
     spec = { kind: 'terminal', ...spec };
+    if (spec.kind === 'subscriptions') {
+      if (!opts.defer) window.StatusBar?.open('usage');
+      return null;
+    }
     if (spec.kind === 'terminal') {
       spec.shellId = spec.shellId || defaultShell(space);
       space.lastShell = spec.shellId;
@@ -2068,7 +2088,7 @@
   }
 
   // ---------- Icônes d'onglet (type ou modèle) ----------
-  const KIND_TEXT = { terminal: '>_', explorer: '📁', editor: '✎', tests: '🧪', docker: '🐳', services: '🛰', subscriptions: '%', prisma: '◆', graphify: '🕸' };
+  const KIND_TEXT = { terminal: '>_', explorer: '📁', editor: '✎', tests: '🧪', docker: '🐳', services: '🛰', prisma: '◆', graphify: '🕸' };
   function tabIconText(tab) { return TabModels.iconHtml(tab.icon || tab.model?.icon || KIND_TEXT[tab.kind] || '•'); }
   function tabIconHtml(tab) {
     if (tab.icon) return TabModels.iconHtml(tab.icon);
@@ -2216,7 +2236,7 @@
 
   function fillEmpty(space) {
     space.emptyKinds.innerHTML = '';
-    for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify']) {
+    for (const k of ['terminal', 'browser', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify']) {
       const b = h('button', 'tb-btn', `${KIND_INFO[k].icon} ${KIND_INFO[k].label}`);
       b.addEventListener('click', () => openKind(space, k));
       space.emptyKinds.appendChild(b);
@@ -2277,7 +2297,7 @@
       { label: 'Renommer…', icon: '✎', action: () => renameTab(tab) },
       { label: 'Changer l\'icône…', icon: tabIconHtml(tab), action: () => changeTabIcon(tab, anchor) },
       ...(tab.icon ? [{ label: 'Icône par défaut', icon: '↺', action: () => { tab.icon = null; const el = tab.el.querySelector('.tab-icon'); if (el) el.innerHTML = tabIconHtml(tab); renderCrewTabs(tab.space); save(); } }] : []),
-      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'subscriptions', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...serializeTab(tab), sessionId: undefined }) },
+      { label: 'Dupliquer', icon: '⧉', disabled: !['terminal', 'explorer', 'tests', 'docker', 'services', 'prisma', 'graphify'].includes(tab.kind), action: () => openTab(tab.space, { kind: tab.kind, ...serializeTab(tab), sessionId: undefined }) },
       { label: 'Déplacer vers', icon: '↦', submenu: [
         ...others.map((s) => ({ label: s.name + (s.parked ? ' (rangé)' : ''), action: () => moveTab(tab, s) })),
         others.length ? '-' : null,
@@ -2446,6 +2466,7 @@
   }
 
   async function openKind(space, kind, extra = {}) {
+    if ((extra.kind || kind) === 'subscriptions') { window.StatusBar?.open('usage'); return; }
     const spec = await resolveSpec({ kind, ...extra });
     if (!spec) return;
     let s = space;
@@ -2546,7 +2567,6 @@
       { label: 'Tests', icon: '🧪', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'tests') },
       { label: 'Docker', icon: '🐳', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'docker') },
       { label: 'Services', icon: '🛰', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'services') },
-      { label: 'Abonnements IA', icon: '%', action: () => openKind(space, 'subscriptions') },
       { label: 'Prisma / BDD', icon: '◆', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'prisma') },
       { label: 'Graphify', icon: '🕸', hint: ctx.ws ? 'workspace' : 'dossier…', action: () => openKind(space, 'graphify') },
     ];
@@ -2761,6 +2781,11 @@
   window.CAI = {
     h, say, talk, save, openTab, openExplorer, openFile, openKind, setAutoTitle, markUnread, shellLabel, spaces, serializeTab,
     activateTab, closeTab, moveTab, openZoneModel, openScreenModel, snapshotSpace, snapshotScreen,
+    revealTerminal(tab) {
+      if (tab.space.parked) unparkSpace(tab.space);
+      if (maximized && maximized !== tab.space) { maximized = null; renderLayout(); }
+      activateTab(tab, true);
+    },
     get currentScreen() { return curScreen(); },
     refreshCrew: () => spaces.forEach(renderCrewTabs),
     setWorkspace: (ws) => { if (ws) { ctx.ws = ws; renderWorkspace(); spaces.forEach(fillEmpty); } },
@@ -2797,6 +2822,7 @@
     bootStep('Recherche des consoles');
     shells = await api.listShells();
     Settings.setShells(shells);
+    StatusBar.mount();
     bootStep("Lecture de l'état enregistré");
     const state = await api.loadState();
     let screensReady = false;
@@ -2817,7 +2843,9 @@
           const { title, ...spec } = t;
           try { openTab(s, { kind: 'terminal', ...spec }, { title, defer: true }); } catch (err) { console.error('[boot] onglet non restauré', t.kind, err); }
         }
-        const at = s.tabs[ss.activeTab] || s.tabs[0];
+        const selected = (ss.tabs || [])[ss.activeTab];
+        const selectedIndex = (ss.tabs || []).slice(0, ss.activeTab).filter((tab) => tab.kind !== 'subscriptions').length;
+        const at = (selected?.kind !== 'subscriptions' && s.tabs[selectedIndex]) || s.tabs[0];
         if (at) activateTab(at, false);
       }
       if (state.version === 3) {

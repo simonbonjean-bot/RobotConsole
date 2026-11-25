@@ -2,7 +2,7 @@
 
 /* ---------- Barre du haut et workspace ---------- */
 #topbar { height: 44px; padding-right: 150px; }
-#spaces { inset: 44px 0 0 0 !important; display: flex !important; padding: 8px; gap: 0; }
+#spaces { inset: 44px 0 var(--status-bar-height, 0px) 0 !important; display: flex !important; padding: 8px; gap: 0; }
 .ws-badge {
   -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 4px; margin-right: 4px;
   background: transparent; border: 1px solid transparent; border-radius: 10px; cursor: pointer; color: var(--text); max-width: 300px;

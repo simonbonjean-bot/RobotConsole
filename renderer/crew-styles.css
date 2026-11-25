@@ -14,7 +14,7 @@ body.dragging-tab #crew { outline: 1.5px dashed color-mix(in srgb, var(--accent)
 
 /* ---- Compacte : barre fine, petits robots ---- */
 body[data-crew-style="compact"] #topbar { height: 44px; }
-body[data-crew-style="compact"] #spaces { inset: 44px 0 0 0 !important; }
+body[data-crew-style="compact"] #spaces { top: 44px !important; }
 body[data-crew-style="compact"] #crew .crew-bot { width: 30px; height: 30px; }
 body[data-crew-style="compact"] #crew .crew-bot.has-tool { width: 56px; }
 body[data-crew-style="compact"] #crew .crew-tab { height: 24px; min-width: 24px; padding: 0 2px; font-size: 14px; }
@@ -30,7 +30,7 @@ body[data-crew-style="compact"] #crew .screen-label { height: 20px; line-height:
 
 /* ---- Dock : grands robots seuls, badge du nombre d'onglets, grossissement au survol ---- */
 body[data-crew-style="dock"] #topbar { height: 68px; }
-body[data-crew-style="dock"] #spaces { inset: 68px 0 0 0 !important; }
+body[data-crew-style="dock"] #spaces { top: 68px !important; }
 body[data-crew-style="dock"] #crew .crew-item { border-color: transparent; background: transparent; position: relative; gap: 0; padding: 0 2px 6px; }
 body[data-crew-style="dock"] #crew .crew-tab:not(.crew-count) { display: none; }
 body[data-crew-style="dock"] #crew .crew-tab.crew-count-alt { display: inline-flex; }

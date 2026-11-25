@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   installSkill: (options) => ipcRenderer.invoke('skills:install', options),
   // Terminaux
   listShells: () => ipcRenderer.invoke('shells:list'),
+  listPtySessions: () => ipcRenderer.invoke('pty:sessions'),
+  terminatePtySession: (id) => ipcRenderer.invoke('pty:terminate', id),
   createPty: (opts) => ipcRenderer.invoke('pty:create', opts),
   attachPty: (opts) => ipcRenderer.invoke('pty:attach', opts),
   detachPty: (id) => ipcRenderer.send('pty:detach', id),
@@ -61,6 +63,8 @@ contextBridge.exposeInMainWorld('api', {
   newWindow: () => ipcRenderer.send('win:new'),
   detachSpace: (state, at) => ipcRenderer.send('win:detachSpace', state, at),
   listWindows: () => ipcRenderer.invoke('win:list'),
+  listOpenWorkspaces: () => ipcRenderer.invoke('ws:listOpen'),
+  focusWindow: (wcId) => ipcRenderer.invoke('win:focus', wcId),
   beginSpaceDrag: (token, state) => ipcRenderer.send('win:beginSpaceDrag', token, state),
   endSpaceDrag: () => ipcRenderer.send('win:endSpaceDrag'),
   acceptSpaceDrag: (token) => ipcRenderer.invoke('win:acceptSpaceDrag', token),

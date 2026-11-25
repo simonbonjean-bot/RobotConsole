@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="crew-styles.css" />
   <link rel="stylesheet" href="prisma.css" />
   <link rel="stylesheet" href="subscriptions.css" />
+  <link rel="stylesheet" href="status-bar.css" />
 </head>
 <body>
   <div id="boot" class="boot" role="status" aria-live="polite">
@@ -37,6 +38,11 @@
   </header>
 
   <main id="spaces"></main>
+  <footer id="status-bar" aria-label="Barre d’état">
+    <button id="status-sessions" type="button" aria-controls="status-panel" aria-expanded="false">Sessions : …</button>
+    <button id="status-usage" type="button" aria-controls="status-panel" aria-expanded="false">Usage des modèles</button>
+  </footer>
+  <section id="status-panel" role="region" aria-label="Sessions persistantes" hidden></section>
 
   <div id="help" class="overlay hidden">
     <div class="help-card">
@@ -106,7 +112,8 @@
   <script src="tests-tab.js"></script>
   <script src="docker-tab.js"></script>
   <script src="services-tab.js"></script>
-  <script src="subscriptions-tab.js"></script>
+  <script src="model-usage.js"></script>
+  <script src="status-bar.js"></script>
   <script src="browser-tab.js"></script>
   <script src="../node_modules/@dagrejs/dagre/dist/dagre.min.js"></script>
   <script src="prisma-diagram.js"></script>

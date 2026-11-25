@@ -22,10 +22,12 @@
       s.providers = providers;
       render(tab);
       s.summary.textContent = `${providers.filter((p) => p.status === 'ok').length} / ${providers.length} disponibles`;
+      tab.onUsage?.(providers);
       return true;
     } catch (e) {
       if (!s.disposed) {
         s.summary.textContent = 'Actualisation impossible';
+        tab.onUsage?.(null);
         UI.toast(e.message, { kind: 'error' });
       }
       return false;
@@ -83,9 +85,7 @@
     }
   }
 
-  const SubscriptionsTab = {
-    icon: '<span>%</span>',
-    defaultTitle() { return 'Abonnements IA'; },
+  const ModelUsage = {
     mount(tab) {
       const s = tab.s = { providers: [], disposed: false, loading: false };
       tab.pane.classList.add('tool-pane', 'subscriptions-pane');
@@ -93,17 +93,17 @@
       s.summary = h('span', 'muted');
       s.refresh = h('button', 'tb-btn small', 'Actualiser');
       s.refresh.addEventListener('click', () => refresh(tab, true));
-      bar.append(h('span', 'tool-badge', 'Abonnements IA'), s.summary, h('div', 'tb-spacer'), s.refresh);
-      const note = h('div', 'subscription-note muted', 'Quotas des abonnements, distincts des coûts API. Une donnée indisponible ne signifie pas un quota épuisé. Actualisation automatique toutes les 5 minutes lorsque cet onglet est visible.');
+      bar.append(h('span', 'tool-badge', 'Usage des modèles'), s.summary, h('div', 'tb-spacer'), s.refresh);
+      const note = h('div', 'subscription-note muted', 'Quotas des abonnements, distincts des coûts API. Une donnée indisponible ne signifie pas un quota épuisé. Actualisation automatique toutes les 5 minutes.');
       s.list = h('div', 'subscriptions-list');
       tab.pane.append(bar, note, s.list);
       refresh(tab);
-      s.timer = setInterval(() => { if (tab.pane.offsetParent) refresh(tab, true); }, 5 * 60000);
     },
-    activate(tab) { refresh(tab); },
+    refresh,
+    activate(tab) { return refresh(tab); },
     focus(tab) { tab.s.refresh.focus(); },
     resize() {},
-    dispose(tab) { tab.s.disposed = true; clearInterval(tab.s.timer); },
+    dispose(tab) { tab.s.disposed = true; },
     serialize() { return {}; },
     remoteSnapshot(tab) {
       return {
@@ -123,5 +123,5 @@
       return { toast: 'Lecture des quotas terminée' };
     },
   };
-  (window.TabKinds = window.TabKinds || {}).subscriptions = SubscriptionsTab;
+  window.ModelUsage = ModelUsage;
 })();

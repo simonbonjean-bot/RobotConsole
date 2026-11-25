@@ -8,6 +8,7 @@ const SocketWriter = require('../main/socket-writer');
 const TerminalFlow = require('../main/terminal-flow');
 const PtyClient = require('../main/ptyclient');
 const Remote = require('../main/remote');
+const Services = require('../main/services');
 
 class Socket extends EventEmitter {
   constructor() { super(); this.messages = []; this.saturated = false; this.destroyed = false; }
@@ -169,6 +170,155 @@ test('disconnect releases paused sessions; reconnect replays the retained tail a
   assert.equal(host.terminal.paused, false);
 });
 
+test('session management lists metadata without history and confirms stop, failure and removal', () => {
+  const host = hostHarness();
+  const socket = host.connect();
+  socket.send({ t: 'create', id: 'pty', cols: 80, rows: 24, cwd: 'project', scope: 'term:project', shellId: 'pwsh' });
+  host.terminal.data('private terminal output');
+  socket.send({ t: 'hello' });
+  const response = socket.messages.findLast((m) => m.t === 'sessions');
+  assert.equal(response.capabilities.terminate, true);
+  assert.equal(response.list[0].cwd, 'project');
+  assert.equal(response.list[0].scope, 'term:project');
+  assert.ok(!JSON.stringify(response).includes('private terminal output'));
+  host.terminal.kill = () => { throw new Error('kill refused'); };
+  socket.send({ t: 'terminate', id: 'pty' });
+  assert.equal(socket.messages.at(-1).error, 'kill refused');
+  socket.send({ t: 'hello' });
+  assert.equal(socket.messages.at(-1).list[0].alive, true, 'failed termination preserves the session');
+  host.terminal.kill = () => {};
+  socket.send({ t: 'terminate', id: 'pty' });
+  assert.deepEqual(socket.messages.at(-1), { t: 'terminated', id: 'pty' });
+  assert.equal(socket.messages.filter((m) => m.t === 'exit').length, 1, 'subscribers are notified even if the native exit event is delayed');
+  host.terminal.exit({ exitCode: 0 });
+  assert.equal(socket.messages.filter((m) => m.t === 'exit').length, 1, 'native exit never duplicates the stop notification');
+  socket.send({ t: 'hello' });
+  assert.deepEqual(socket.messages.at(-1).list, []);
+  socket.send({ t: 'terminate', id: 'pty' });
+  assert.equal(socket.messages.at(-1).error, undefined, 'removing an already absent session is idempotent');
+});
+
+test('PtyClient confirms termination with new and already-running legacy hosts', async () => {
+  for (const modern of [true, false]) {
+    const client = new PtyClient(__dirname);
+    const socket = new Socket();
+    const writes = [];
+    let present = true, refused = false;
+    socket.write = (data, callback) => {
+      const request = JSON.parse(data);
+      writes.push(request.t);
+      let response;
+      if (request.t === 'hello') response = { t: 'sessions', capabilities: modern ? { terminate: true } : undefined, list: present ? [{ id: 'pty' }] : [] };
+      if (request.t === 'terminate') {
+        response = { t: 'terminated', id: request.id, ...(refused ? { error: 'kill refused' } : {}) };
+        if (!refused) present = false;
+      }
+      if (request.t === 'kill' && !refused) present = false;
+      callback?.();
+      if (response) queueMicrotask(() => socket.emit('data', JSON.stringify(response) + '\n'));
+      return true;
+    };
+    client._bind(socket);
+    await client.terminate('pty');
+    assert.equal(present, false);
+    assert.ok(writes.includes(modern ? 'terminate' : 'kill'));
+    present = refused = true;
+    await assert.rejects(client.terminate('pty'), modern ? /kill refused/ : /non confirmé/);
+    assert.equal(present, true);
+    socket.destroy();
+  }
+});
+
+test('stopping a managed service from the session panel suppresses automatic restart and preserves errors', async (t) => {
+  let service, failed = false;
+  const host = { async terminate(id) {
+    if (failed) throw new Error('kill refused');
+    service.onExit(id, -1);
+  } };
+  service = new Services({ ptyHost: host, shells: [] });
+  const state = { sessionId: 'pty', state: 'running', ports: [3000], manualStop: false };
+  service.ws.set('root', { defs: [{ id: 'server', restart: true }], st: new Map([['server', state]]) });
+  service.bySession.set('pty', { root: 'root', id: 'server' });
+  service.push = () => {};
+  failed = true;
+  await assert.rejects(service.terminateSession('pty'), /kill refused/);
+  assert.equal(state.manualStop, false);
+  assert.equal(state.state, 'running');
+  failed = false;
+  await service.terminateSession('pty');
+  assert.equal(state.manualStop, true);
+  assert.equal(state.state, 'stopped');
+  assert.deepEqual(state.ports, []);
+  await service.terminateSession('unmanaged');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let restarts = 0;
+  service.start = async () => { restarts++; };
+  state.manualStop = false;
+  service.onExit('pty', 1);
+  assert.equal(state.state, 'restarting');
+  await service.terminateSession('pty');
+  t.mock.timers.tick(1500);
+  assert.equal(restarts, 0, 'a stop also cancels a restart that was already scheduled');
+});
+
+test('session IPC annotates live attachments and only releases credits after a successful stop', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const from = source.indexOf("ipcMain.handle('pty:sessions'");
+  const to = source.indexOf("ipcMain.on('pty:detach'", from);
+  const handlers = {}, detached = [], exits = [];
+  let failed = false;
+  const owners = new Map([['pty', [{ id: 1, isDestroyed: () => false }, { id: 2, isDestroyed: () => true }]]]);
+  vm.runInNewContext(source.slice(from, to), {
+    ipcMain: { handle(name, fn) { handlers[name] = fn; } },
+    ptyHost: { async sessions() { return [{ id: 'pty' }]; } },
+    owners,
+    services: { async terminateSession() { if (failed) throw new Error('kill refused'); } },
+    sendTo(...args) { exits.push(args); },
+    terminalFlow: { detach(id, session) { detached.push([id, session]); } },
+  });
+  const sessions = await handlers['pty:sessions']();
+  assert.equal(sessions[0].attachedWindows, 1);
+  await assert.rejects(handlers['pty:terminate']({}, ''), /Session invalide/);
+  failed = true;
+  await assert.rejects(handlers['pty:terminate']({}, 'pty'), /kill refused/);
+  assert.equal(owners.has('pty'), true);
+  assert.deepEqual(detached, []);
+  failed = false;
+  await handlers['pty:terminate']({}, 'pty');
+  assert.equal(owners.has('pty'), false);
+  assert.deepEqual(detached, [[1, 'pty'], [2, 'pty']]);
+  assert.deepEqual(exits, [['pty', 'pty:exit', -1]], 'old hosts notify attached tabs before ownership is released');
+});
+
+test('long PTY histories retain the exact bounded tail across chunks, resizes and repeated attachments', () => {
+  const host = hostHarness();
+  const socket = host.connect();
+  socket.send({ t: 'create', id: 'pty', cols: 80, rows: 24 });
+  let output = '';
+  const produce = (data) => { output += data; host.terminal.data(data); };
+  produce('old size\r\n');
+  socket.send({ t: 'resize', id: 'pty', cols: 100, rows: 30 });
+  for (let i = 0; i < 6000; i++) produce(`${i}: ${'conversation '.repeat(10)}\r\n`);
+  const attach = () => {
+    socket.send({ t: 'attach', id: 'pty' });
+    return socket.messages.findLast((m) => m.t === 'attached');
+  };
+  const first = attach();
+  assert.equal(first.data, output.slice(-400 * 1024));
+  assert.deepEqual(first.segs, [{ cols: 100, rows: 30, data: first.data }]);
+  produce('\x1b[2K\r> typed');
+  assert.equal(attach().data, output.slice(-400 * 1024), 'taking a replay must not consume the retained chunks');
+  produce('oversized '.repeat(60000));
+  assert.equal(attach().data, output.slice(-400 * 1024));
+  socket.send({ t: 'resize', id: 'pty', cols: 120, rows: 40 });
+  const resized = attach();
+  assert.equal(resized.segs[1].data, '');
+  assert.equal(resized.segs[1].cols, 120);
+  produce('new dimensions');
+  assert.deepEqual(attach().segs, [{ cols: 120, rows: 40, data: 'new dimensions' }],
+    'overflow keeps the existing policy of dropping older resize segments');
+});
+
 test('remote mirrors subscribe without copying PTY history; legacy attachments still replay', async () => {
   const attachments = [];
   const remote = new Remote({
@@ -256,6 +406,17 @@ test('renderer credits follow parsing, replay discards duplicates, and snapshot 
   assert.equal(tab.term.text, state.data + 'AFTER-SNAPSHOT');
   assert.equal(credits.length, 103);
   assert.equal(new Set(credits.map(([, token]) => token)).size, 103);
+  const large = '\x1b[31m' + 'long redraw\r\n'.repeat(20000) + '\x1b[0m';
+  handlers.data('pty', large, 104, 104);
+  assert.ok(tab.term.pending.length > 1, 'large redraws give the parser several opportunities to yield for keyboard input');
+  tab.term.pending.shift()();
+  assert.equal(tab.renderedSeq, 103);
+  assert.equal(credits.length, 103, 'partial parsing must not release the original chunk credit');
+  const largeSnapshot = kind.remoteSnapshot(tab);
+  tab.term.drain();
+  assert.equal((await largeSnapshot).terminal.data, state.data + 'AFTER-SNAPSHOT' + large);
+  assert.equal(tab.renderedSeq, 104);
+  assert.deepEqual(credits.at(-1), ['pty', 104]);
   handlers.disconnect();
   timers.shift()();
   attachRequests.shift()({ found: true, alive: true, segs: [
@@ -269,5 +430,9 @@ test('renderer credits follow parsing, replay discards duplicates, and snapshot 
   await new Promise((resolve) => setImmediate(resolve));
   tab.term.drain();
   assert.equal(tab.term.text, 'RECONNECTED', 'reconnection cancels an older replay and resets the screen rather than duplicating history');
+  handlers.exit('pty', -1);
+  const pendingExitWrites = tab.term.pending.length;
+  handlers.exit('pty', -1);
+  assert.equal(tab.term.pending.length, pendingExitWrites, 'explicit stop confirmation and a delayed native exit do not duplicate the exit message');
   kind.dispose(tab);
 });

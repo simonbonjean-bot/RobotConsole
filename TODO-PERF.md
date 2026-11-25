@@ -28,4 +28,22 @@ Les comparaisons de profilage ci-dessous restent à effectuer avant et après, a
 
 ## Limites de l’audit
 
-L’audit initial portait sur les parcours principaux et ne constituait pas une revue exhaustive du dépôt. Les huit points sont implémentés et couverts par des tests ciblés. Les tests SQL exercent la vraie classe `pg.Query` avec un protocole simulé, sans serveur PostgreSQL réel. Les suppressions vocales parcourent encore le fichier complet, mais de façon asynchrone et sans le charger entièrement en mémoire. L'hôte PTY conserve son historique de reconnexion borné existant ; cela ne constitue pas un archivage illimité des sorties produites sans fenêtre. Aucun profilage comparatif en fonctionnement : les gains ne sont pas chiffrés.
+L’audit initial portait sur les parcours principaux et ne constituait pas une revue exhaustive du dépôt. Les huit points sont implémentés et couverts par des tests ciblés. Les tests SQL exercent la vraie classe `pg.Query` avec un protocole simulé, sans serveur PostgreSQL réel. Les suppressions vocales parcourent encore le fichier complet, mais de façon asynchrone et sans le charger entièrement en mémoire. L'hôte PTY conserve son historique de reconnexion borné existant ; cela ne constitue pas un archivage illimité des sorties produites sans fenêtre. Le profilage comparatif d'une session complète reste à faire ; les premières mesures synthétiques du terminal sont détaillées ci-dessous.
+
+## Longues conversations : mesures du 25 novembre 2026
+
+`npm run test:perf:terminal -- --large` ouvre une fenêtre Electron temporaire et utilise le vrai xterm et le module d'onglet local, avec 100, 8 000 et 50 000 lignes. Trois sorties sont comparées : édition d'une ligne, redessin de l'écran et redessin de toute la conversation. `--gpu` active WebGL ; `--compare-history` compare aussi la conservation de l'historique avec le code de `HEAD` (tant que celui-ci contient l'ancienne implémentation).
+
+La mesure clavier programme une frappe synthétique pendant le traitement de la sortie, puis mesure le délai jusqu'au gestionnaire d'entrée. Ce n'est pas une mesure matérielle clavier→PTY→CLI→écran. Le temps `parse` couvre toute la sortie ; `settled` ajoute deux trames d'animation et ne mesure pas le seul curseur. Les redessins de conversation ont cinq échantillons, les autres vingt : ces résultats sont indicatifs, sans seuil temporel bloquant sur une machine partagée.
+
+| Scénario | Avant | Après |
+| --- | --- | --- |
+| Clavier pendant un redessin complet de 8 000 lignes, rendu DOM, P95 | 123,5 ms | 20,4 ms |
+| Clavier pendant un redessin complet de 50 000 lignes, rendu DOM, P95 | 373,4 ms | 24,6 ms |
+| Conservation de 2 000 sorties avec un historique déjà rempli de 400 Ko, comparaison dans le même processus | 232,2 ms | 3,7 ms |
+
+Avec WebGL, après correction, le délai clavier P95 pendant les redessins complets est de 21,5 ms à 8 000 lignes et 21,2 ms à 50 000 lignes. L'édition d'une ligne ou le redessin du seul écran ne se dégrade pas fortement avec la longueur de l'historique dans ces scénarios.
+
+Deux corrections : l'historique PTY conserve des morceaux et n'assemble son texte qu'au rattachement ; le rendu local et le rejeu découpent les grosses sorties en écritures de 16 Ko pour laisser xterm céder le thread entre les morceaux. Les crédits et la séquence ne sont validés qu'après le dernier morceau. Le débit total n'est pas nécessairement amélioré : le redessin DOM complet de 50 000 lignes a pris jusqu'à 875 ms après découpage, contre 373 ms avant, mais la saisie n'attend plus sa fin.
+
+Les tests vérifient aussi le contenu exact de la queue d'historique, les redimensionnements, les instantanés et les séquences ANSI et caractères Unicode coupés entre deux morceaux. Ces mesures ne lancent pas Codex ou Claude, n'accèdent à aucune conversation existante et excluent les animations des robots et le partage distant. Elles reproduisent un blocage possible lors d'une grosse sortie unique ; elles ne prouvent pas que la session signalée produit ce même profil. Une vérification sur la conversation réelle et le profilage global restent nécessaires.

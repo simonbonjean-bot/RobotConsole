@@ -3,13 +3,13 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
-module.exports = function run(file) {
+module.exports = function run(file, args = []) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'robotconsole-ui-'));
   let status = 1;
   try {
     const env = { ...process.env, ROBOTCONSOLE_TEST_TEMP: temp };
     delete env.ELECTRON_RUN_AS_NODE;
-    const result = spawnSync(require('electron'), [file], { env, stdio: 'inherit', timeout: 60000 });
+    const result = spawnSync(require('electron'), [file, ...args], { env, stdio: 'inherit', timeout: 60000 });
     if (result.error) throw result.error;
     status = result.status ?? 1;
   } finally {

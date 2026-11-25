@@ -40,6 +40,91 @@ test('Windows paths retain drive roots, case folding and portable template paths
   assert.equal(p.withinPath('C:\\workspace', 'C:\\work'), false);
 });
 
+test('workspace switcher lists only open app windows and restores the selected window without creating one', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const from = source.indexOf("ipcMain.handle('ws:listOpen'");
+  const to = source.indexOf("ipcMain.on('ws:open'", from);
+  assert.ok(from >= 0 && to > from);
+  const handlers = {}, calls = [];
+  const entry = (id, ws, winId = 'main', extra = {}) => ({
+    ws, winId, ...extra,
+    win: {
+      webContents: { id }, isDestroyed: () => !!extra.destroyed,
+      isMinimized: () => !!extra.minimized,
+      restore: () => calls.push(['restore', id]),
+      show: () => calls.push(['show', id]),
+      focus: () => calls.push(['focus', id]),
+    },
+  });
+  const windows = new Map([
+    [1, entry(1, 'first')], [2, entry(2, 'second', 'main', { minimized: true })],
+    [3, entry(3, 'second', 'wabc')], [4, entry(4, 'closed', 'main', { closed: true })],
+    [5, entry(5, 'destroyed', 'main', { destroyed: true })], [6, entry(6, null)],
+  ]);
+  vm.runInNewContext(source.slice(from, to), {
+    ipcMain: { handle(name, handler) { handlers[name] = handler; } },
+    windows, Workspace: { load: (root) => ({ name: `Project ${root}` }) },
+  });
+  const list = handlers['ws:listOpen']({ sender: { id: 1 } });
+  assert.deepEqual(Array.from(list, (item) => item.wcId), [1, 2, 3, 6]);
+  assert.equal(list[0].current, true);
+  assert.equal(list[1].current, false);
+  assert.equal(list[1].name, 'Project second');
+  assert.equal(list[2].winId, 'wabc');
+  assert.equal(list[3].name, 'Fenêtre sans workspace');
+  handlers['win:focus']({}, 2);
+  assert.deepEqual(calls, [['restore', 2], ['show', 2], ['focus', 2]]);
+  calls.length = 0;
+  handlers['win:focus']({}, 3);
+  assert.deepEqual(calls, [['show', 3], ['focus', 3]]);
+  for (const id of [4, 5, 99]) assert.throws(() => handlers['win:focus']({}, id), /fenêtre est fermée/);
+  assert.equal(windows.size, 6);
+});
+
+test('workspace menu adds open workspaces without removing existing actions and surfaces focus/list errors', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
+  const from = source.indexOf('  async function workspaceMenu(');
+  const to = source.indexOf('  async function pickWorkspace(', from);
+  assert.ok(from >= 0 && to > from);
+  const focused = [], errors = [];
+  let items, failList = false, failFocus = false;
+  const sandbox = {
+    ctx: { ws: { name: 'Current', root: 'current' }, recent: [{ name: 'Recent', root: 'recent' }] },
+    Platform: createPlatform('win32'), I18n: { t: (template, value) => template.replace('{0}', value) },
+    UI: { menu(value) { items = value; }, toast(message) { errors.push(message); } },
+    wsBadge: {}, renameWorkspace() {}, workspaceStudio() {}, rerollWorkspace() {}, pickWorkspace() {},
+    api: {
+      async listOpenWorkspaces() {
+        if (failList) throw new Error('List failed');
+        return [
+          { wcId: 1, winId: 'main', name: 'Current', root: 'current', current: true },
+          { wcId: 2, winId: 'main', name: '<Other>', root: 'other', current: false },
+          { wcId: 3, winId: 'wabc', name: '<Other>', root: 'other', current: false },
+        ];
+      },
+      async focusWindow(id) { if (failFocus) throw new Error('Closed window'); focused.push(id); },
+    },
+  };
+  vm.runInNewContext(source.slice(from, to), sandbox);
+  await sandbox.workspaceMenu();
+  assert.equal(items[0].title, 'Workspaces ouverts');
+  assert.equal(items.find((item) => item.label === 'Current').checked, true);
+  assert.equal(items.find((item) => item.label === 'Current').disabled, true);
+  assert.ok(items.some((item) => item.label === '<Other> · Fenêtre ABC'));
+  for (const label of ['Renommer le workspace…', 'Ouvrir un autre workspace…', 'Workspaces récents', 'Fermer le workspace']) {
+    assert.ok(items.some((item) => item.label === label), `Preserve ${label}`);
+  }
+  await items.find((item) => item.label === '<Other>').action();
+  assert.deepEqual(focused, [2]);
+  failFocus = true;
+  await items.find((item) => item.label === '<Other>').action();
+  assert.deepEqual(errors, ['Closed window']);
+  failList = true;
+  await sandbox.workspaceMenu();
+  assert.equal(errors.at(-1), 'List failed');
+  assert.ok(items.some((item) => item.label === 'Ouvrir un autre workspace…'), 'Existing menu remains usable if listing fails');
+});
+
 test('templates resolve real POSIX workspace paths rather than creating backslash filenames', () => {
   for (const platform of ['linux', 'darwin', 'win32']) {
     const root = platform === 'win32' ? 'C:\\Project' : '/home/Project';

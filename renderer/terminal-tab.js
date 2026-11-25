@@ -281,16 +281,26 @@
   // Reprend une session qui tourne toujours dans le service en arrière-plan
   // Rejoue la sortie conservée morceau par morceau, chacun à la taille où il a été produit
   // (sinon les lignes se coupent ailleurs et Claude Code / vim s'affichent en vrac)
+  function writeChunked(term, data, done) {
+    // xterm ne peut céder le thread qu'entre deux writes, pas au milieu d'une grosse sortie.
+    const chunkSize = 16 * 1024;
+    let offset = 0;
+    for (; offset + chunkSize < data.length; offset += chunkSize) {
+      term.write(data.slice(offset, offset + chunkSize));
+    }
+    term.write(data.slice(offset), done);
+  }
+
   function replaySegs(term, segs, data, done, current = () => true) {
     if (!current()) return;
-    if (!segs?.length) { term.write(data || '', () => { if (current()) done?.(); }); return; }
+    if (!segs?.length) { writeChunked(term, data || '', () => { if (current()) done?.(); }); return; }
     let i = 0;
     const next = () => {
       if (!current()) return;
       if (i >= segs.length) return done?.();
       const g = segs[i++];
       if (g.cols && g.rows && (g.cols !== term.cols || g.rows !== term.rows)) term.resize(g.cols, g.rows);
-      term.write(g.data || '', next);
+      writeChunked(term, g.data || '', next);
     };
     next();
   }
@@ -351,6 +361,7 @@
   }
 
   function markExited(tab, code, quiet) {
+    if (tab.exited) return;
     tab.exited = true;
     tab.el.classList.add('exited');
     tab.term.write(`\r\n\x1b[90m[${I18n.t('Processus terminé (code {0}) — Entrée pour relancer, Ctrl+Maj+W pour fermer', code)}]\x1b[0m\r\n`);
@@ -360,7 +371,7 @@
   }
 
   function writeOutput(tab, pid, item) {
-    tab.term.write(item.data, () => {
+    writeChunked(tab.term, item.data, () => {
       tab.renderedSeq = item.seq;
       api.ackData?.(pid, item.token);
     });

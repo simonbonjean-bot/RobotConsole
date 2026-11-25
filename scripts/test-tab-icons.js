@@ -8,6 +8,9 @@ const { pathToFileURL } = require('node:url');
 const temp = process.env.ROBOTCONSOLE_TEST_TEMP;
 if (!temp) throw new Error('Run this test with Node so the parent can clean up the Chromium profile.');
 app.setPath('userData', path.join(temp, 'profile'));
+const sessionData = path.join(temp, 'session');
+fs.mkdirSync(sessionData);
+app.setPath('sessionData', sessionData);
 app.disableHardwareAcceleration();
 
 app.whenReady().then(async () => {
@@ -23,7 +26,7 @@ app.whenReady().then(async () => {
       <button id="anchor">Choose</button>`);
     win = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { partition: 'tab-icon-tests' } });
     await win.loadFile(fixture);
-    for (const file of ['../shared/platform.js', 'ui.js', 'tool-icons-data.js', 'tool-icons.js', 'emoji-data.js', 'emoji-picker.js', 'model-presets.js']) {
+    for (const file of ['../shared/platform.js', 'ui.js', 'tool-icons-data.js', 'tool-icons.js', 'robot.js', 'emoji-data.js', 'emoji-picker.js', 'model-presets.js']) {
       await win.webContents.executeJavaScript(fs.readFileSync(path.join(renderer, file), 'utf8'));
     }
     await win.webContents.executeJavaScript(`
@@ -35,6 +38,20 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(fs.readFileSync(path.join(renderer, 'tab-models.js'), 'utf8'));
     const result = await win.webContents.executeJavaScript(`(async () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
+      const rocket = ToolIcons.search('fusée', 'emoji').find((icon) => icon.emoji === '🚀');
+      assert(rocket && ToolIcons.search('🚀', 'emoji').some((icon) => icon.id === rocket.id), 'Robot emoji search accepts French words and pasted emojis');
+      assert(ToolIcons.search('rocket', 'emoji').some((icon) => icon.id === rocket.id), 'English emoji search remains available');
+      const symbol = ToolIcons.search('flèche', 'symbols').find((icon) => icon.id === 'lu:arrow-up');
+      assert(symbol && ToolIcons.search('fleche', 'symbols').includes(symbol), 'Symbol search is accent-insensitive');
+      assert(!ToolIcons.search('fusée', 'symbols').some((icon) => icon.emoji), 'Symbol category does not include unrelated emojis');
+      const emojiPreview = UI.h('div', '', ToolIcons.html(rocket.id));
+      assert(emojiPreview.querySelector('svg text').textContent === '🚀', 'Emoji catalogue icons render as SVG text rather than missing paths');
+      const restoredTraits = JSON.parse(JSON.stringify({ tool: rocket.id }));
+      const robot = Robot.generate(123, { traits: restoredTraits });
+      assert(robot.tool === rocket.id && robot.svg.includes('🚀'), 'Persisted emoji tools remain visible on generated robots');
+      const svg = new DOMParser().parseFromString(robot.svg, 'image/svg+xml');
+      assert(!svg.querySelector('parsererror') && svg.querySelector('.tool text').textContent === '🚀', 'Robot SVG with an emoji remains valid XML');
+      assert(Robot.generate(123, { traits: { tool: symbol.id } }).tool === symbol.id, 'Symbol tools resolve through the existing robot renderer');
       const anchor = document.querySelector('#anchor');
       let picked;
       const open = () => { picked = undefined; TabModels.pickIcon(anchor, (icon) => { picked = icon; }, true); };

@@ -1,4 +1,4 @@
-// Génère renderer/tool-icons.js : le catalogue des outils que le robot tient à côté de lui.
+// Génère renderer/tool-icons-data.js : le catalogue des outils que le robot tient à côté de lui.
 // Sources (node_modules) :
 //   - devicon      : ~650 logos de technos de dev en couleurs (référencés par fichier, pas copiés)
 //   - simple-icons : logos officiels des marques (IA, services…) absents de devicon
@@ -6,6 +6,7 @@
 // Lancer : node scripts/build-tool-icons.js
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const nm = (...p) => path.join(root, 'node_modules', ...p);
 
@@ -26,6 +27,8 @@ const CATS = [
   ['design', 'Design'],
   ['dev', 'Pictos dev'],
   ['fun', 'Pictos divers'],
+  ['symbols', 'Symboles'],
+  ['emoji', 'Emojis'],
   ['other', 'Autres technos'],
 ];
 
@@ -115,6 +118,13 @@ const LU = {
     sun: 'Soleil', moon: 'Lune', snowflake: 'Flocon', droplet: 'Goutte', rainbow: 'Arc-en-ciel', 'tree-pine': 'Sapin', leaf: 'Feuille', sprout: 'Pousse', cat: 'Chat', dog: 'Chien', rabbit: 'Lapin', bird: 'Oiseau', fish: 'Poisson', turtle: 'Tortue', snail: 'Escargot', squirrel: 'Écureuil', egg: 'Œuf', apple: 'Pomme', cherry: 'Cerises', shell: 'Coquillage',
     'shopping-cart': 'Panier', 'credit-card': 'Carte bancaire', wallet: 'Portefeuille', store: 'Boutique', receipt: 'Reçu', 'qr-code': 'QR code', barcode: 'Code-barres', tag: 'Étiquette', bookmark: 'Marque-page', pin: 'Punaise', calendar: 'Calendrier', 'alarm-clock': 'Réveil', umbrella: 'Parapluie', thermometer: 'Thermomètre', siren: 'Sirène', ambulance: 'Ambulance', pill: 'Pilule', syringe: 'Seringue', beaker: 'Bécher', pipette: 'Pipette',
   },
+  symbols: {
+    circle: 'Cercle', square: 'Carré', triangle: 'Triangle', diamond: 'Losange', pentagon: 'Pentagone', hexagon: 'Hexagone', octagon: 'Octogone', shapes: 'Formes',
+    plus: 'Plus', minus: 'Moins', equal: 'Égal', divide: 'Division', percent: 'Pourcentage', pi: 'Pi', omega: 'Oméga', radical: 'Racine carrée', asterisk: 'Astérisque',
+    'circle-plus': 'Ajouter', 'circle-minus': 'Retirer', 'circle-question-mark': 'Question', 'circle-exclamation-point': 'Alerte', 'triangle-exclamation-point': 'Attention', 'badge-check': 'Certification', 'badge-exclamation-point': 'Avertissement', 'badge-info': 'Information', check: 'Coche', x: 'Croix', ban: 'Interdit',
+    'arrow-up': 'Flèche haut', 'arrow-down': 'Flèche bas', 'arrow-left': 'Flèche gauche', 'arrow-right': 'Flèche droite', 'arrow-up-right': 'Flèche diagonale', 'arrows-up-from-line': 'Flèches montantes', 'chevrons-left-right': 'Chevrons', move: 'Déplacement', expand: 'Agrandir', shrink: 'Réduire', navigation: 'Direction',
+    recycle: 'Recyclage', radiation: 'Radioactivité', biohazard: 'Risque biologique', 'circle-dot': 'Point central', handshake: 'Entente', accessibility: 'Accessibilité', scale: 'Équilibre', 'file-music': 'Partition musicale', 'volume-2': 'Son', 'volume-x': 'Muet',
+  },
 };
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const luMissing = [];
@@ -125,6 +135,15 @@ for (const [cat, list] of Object.entries(LU)) {
     const body = nodes.map(([tag, attrs]) => `<${tag} ${Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ')}/>`).join('');
     push({ id: 'lu:' + name, label, cat, body, kw: (name.replace(/-/g, ' ') + ' ' + label).toLowerCase() });
   }
+}
+
+// Réutilise la même base Unicode que le sélecteur d'emojis.
+const emojiContext = { window: {} };
+vm.runInNewContext(fs.readFileSync(path.join(root, 'renderer', 'emoji-data.js'), 'utf8'), emojiContext);
+const emojiData = emojiContext.window.EMOJI_DATA;
+for (const [emoji, label, group] of emojiData.emojis) {
+  const codepoints = Array.from(emoji, (character) => character.codePointAt(0).toString(16)).join('-');
+  push({ id: 'emoji:' + codepoints, label, cat: 'emoji', emoji, kw: `${emoji} ${label} ${emojiData.groups[group][1]} emoji`.toLowerCase() });
 }
 
 // Pictogrammes nommés pour les clients dont le logo n'est pas fourni par nos catalogues.
@@ -159,7 +178,7 @@ const counts = {};
 for (const it of out) counts[it.cat] = (counts[it.cat] || 0) + 1;
 
 const js = `// Fichier généré par scripts/build-tool-icons.js — ne pas modifier à la main.
-// Sources : devicon (MIT), simple-icons (CC0), lucide (ISC).
+// Sources : devicon (MIT), simple-icons (CC0), lucide (ISC), emoji-data.js (Unicode).
 window.ToolIconData = ${JSON.stringify({ cats: CATS.filter(([c]) => counts[c]).map(([id, label]) => ({ id, label, count: counts[id] })), aliases: ALIASES, icons: out })};
 `;
 fs.writeFileSync(path.join(root, 'renderer', 'tool-icons-data.js'), js);

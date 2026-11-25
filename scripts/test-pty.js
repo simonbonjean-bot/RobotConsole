@@ -88,7 +88,10 @@ const PtyClient = require('../main/ptyclient');
     assert.equal(attached.found, true);
     assert.ok(attached.data.includes('RC_PTY_OK'));
     assert.equal(attached.cols, 100);
-    send({ t: 'kill', id: 'test' });
+    assert.equal(sessions.list[0].cwd, root);
+    send({ t: 'terminate', id: 'test' });
+    const terminated = await wait('termination confirmation', (m) => m.t === 'terminated');
+    assert.equal(terminated.error, undefined);
     await wait('exit', (m) => m.t === 'exit');
     console.log('PTY: shell, robot-say, resize, reconnection, replay and shutdown passed.');
   } finally {
@@ -99,6 +102,6 @@ const PtyClient = require('../main/ptyclient');
       await once(host, 'exit');
       clearTimeout(timer);
     }
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

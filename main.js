@@ -382,6 +382,18 @@ ipcMain.handle('pty:create', async (e, { id, shellId, cols, rows, cwd, init, sco
   return { shellId: def.id, label: def.label };
 });
 ipcMain.handle('pty:attach', (e, { id, cols, rows }) => { own(id, e.sender); return ptyHost.attach(id, cols, rows); });
+ipcMain.handle('pty:sessions', async () => (await ptyHost.sessions()).map((session) => ({
+  ...session,
+  attachedWindows: [...(owners.get(session.id) || [])].filter((wc) => !wc.isDestroyed()).length,
+})));
+ipcMain.handle('pty:terminate', async (_e, id) => {
+  if (typeof id !== 'string' || !id) throw new Error('Session invalide');
+  await services.terminateSession(id);
+  // Un ancien hôte peut confirmer le retrait avant son événement natif de fin.
+  sendTo(id, 'pty:exit', -1);
+  for (const wc of owners.get(id) || []) terminalFlow.detach(wc.id, id);
+  owners.delete(id);
+});
 ipcMain.on('pty:detach', (e, id) => { owners.get(id)?.delete(e.sender); terminalFlow.detach(e.sender.id, id); });
 ipcMain.on('pty:ack', (e, id, token) => terminalFlow.consumed(id, token, e.sender.id));
 // Nettoyage des terminaux orphelins : on garde aussi ceux des autres fenêtres du même workspace
@@ -467,6 +479,20 @@ ipcMain.handle('ws:pick', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const r = await dialog.showOpenDialog(win, { title: I18n.t('Ouvrir un dossier comme workspace'), properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('ws:listOpen', (e) => [...windows.values()]
+  .filter((w) => !w.closed && !w.win.isDestroyed())
+  .map((w) => ({
+    wcId: w.win.webContents.id, winId: w.winId, root: w.ws,
+    name: w.ws ? Workspace.load(w.ws).name : 'Fenêtre sans workspace',
+    current: w.win.webContents.id === e.sender.id,
+  })));
+ipcMain.handle('win:focus', (_e, wcId) => {
+  const target = windows.get(wcId);
+  if (!target || target.closed || target.win.isDestroyed()) throw new Error('Cette fenêtre est fermée');
+  if (target.win.isMinimized()) target.win.restore();
+  target.win.show();
+  target.win.focus();
 });
 ipcMain.on('ws:open', (_e, root) => { if (root) createWindow({ ws: root }); });
 ipcMain.on('win:new', () => createWindow({ ws: null }));

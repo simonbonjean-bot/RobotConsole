@@ -65,6 +65,7 @@ class PtyClient {
 
   _bind(sock) {
     this.sock = sock;
+    this.capabilities = {};
     this.writer = new SocketWriter(sock);
     sock.setEncoding('utf8');
     let acc = '';
@@ -80,8 +81,9 @@ class PtyClient {
         if (m.t === 'data') this.onData(m.id, m.data);
         else if (m.t === 'exit') this.onExit(m.id, m.code, m.error);
         else if (m.t === 'resized') { this.onFlush(m.id); this.onResize(m.id, m.cols, m.rows); }
-        else if (m.t === 'sessions') this._resolve('sessions', m.list);
+        else if (m.t === 'sessions') { this.capabilities = m.capabilities || {}; this._resolve('sessions', m.list); }
         else if (m.t === 'attached') { this.onFlush(m.id); this._resolve('attach:' + m.id, m); }
+        else if (m.t === 'terminated') this._resolve('terminate:' + m.id, m);
       }
     });
     const gone = () => {
@@ -136,6 +138,17 @@ class PtyClient {
     this.writer.send({ t: 'ack', id, size }).catch((error) => console.error('[pty:ack]', error.message));
   }
   sessions() { return this.request({ t: 'hello' }, 'sessions'); }
+  async terminate(id) {
+    await this.sessions();
+    if (!this.capabilities.terminate) {
+      // Les hôtes déjà lancés survivent aux mises à jour de l'application.
+      await this.send({ t: 'kill', id });
+      if ((await this.sessions()).some((session) => session.id === id)) throw new Error('Arrêt de la session non confirmé');
+      return;
+    }
+    const result = await this.request({ t: 'terminate', id }, 'terminate:' + id);
+    if (result.error) throw new Error(result.error);
+  }
   attach(id, cols, rows) { return this.request({ t: 'attach', id, cols, rows }, 'attach:' + id); }
 }
 
