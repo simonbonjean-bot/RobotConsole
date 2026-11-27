@@ -77,7 +77,7 @@
             if (live && st.mem) meta.push(`▦ ${UI.fmtBytes(st.mem)}`);
             if (st.health) meta.push(`${st.health.ok ? '♥' : '✗'} ${st.health.code || (st.health.ok ? 'ok' : st.health.error || 'fermé')}`);
             return {
-              id: d.id, label: d.name || d.id, status: cls, badge: label, detail: d.command || '', meta: meta.join(' · '),
+              id: d.id, label: d.name || d.id, status: cls, badge: label, detail: [typeof d.description === 'string' ? d.description : '', d.command].filter(Boolean).join('\n'), meta: meta.join(' · '),
               ports: st.ports || [], sessionId: st.sessionId || undefined, logLabel: 'Journal',
               actions: live ? [{ id: 'restart', label: '⟳ Redémarrer' }, { id: 'stop', label: '■ Arrêter', danger: true }] : [{ id: 'start', label: '▶ Démarrer' }],
             };
@@ -161,6 +161,7 @@
     const health = st.health ? `<span class="dk-health ${st.health.ok ? 'h-healthy' : 'h-unhealthy'}" title="${esc(st.health.url || 'port ' + st.health.port)}">${st.health.ok ? '♥' : '✗'} ${st.health.code || (st.health.ok ? 'ok' : esc(st.health.error || 'fermé'))}${st.health.ms ? ` · ${st.health.ms} ms` : ''}</span>` : '';
     el.innerHTML = `<div class="dk-top"><span class="dk-dot"></span><span class="dk-name">${esc(d.name || d.id)}</span>` +
       `${d.autostart ? '<span class="tool-badge" title="Démarre avec le workspace">auto</span>' : ''}${d.restart ? '<span class="tool-badge" title="Redémarre s\'il plante">♻</span>' : ''}${health}<span class="dk-state">${label}</span></div>` +
+      (typeof d.description === 'string' && d.description ? `<div class="sv-description" data-no-i18n>${esc(d.description)}</div>` : '') +
       `<div class="dk-sub mono">${esc(d.command || '')}</div>` +
       `<div class="dk-stats">${up ? `<span class="sv-uptime" title="Démarré le ${new Date(st.started).toLocaleString('fr-FR')}">⏱ ${UI.fmtDuration(Date.now() - st.started)}</span>` : st.ended ? `<span title="${new Date(st.ended).toLocaleString('fr-FR')}">⏹ il y a ${UI.fmtDuration(Date.now() - st.ended)}${st.exitCode != null ? ` · code ${st.exitCode}` : ''}</span>` : ''}` +
       `${up && st.pid ? `<span title="PID du processus">#${st.pid}</span>` : ''}${up && st.mem ? `<span title="Mémoire (${st.procs} processus)">▦ ${UI.fmtBytes(st.mem)}</span>` : ''}${st.restarts ? `<span title="Redémarrages automatiques">♻ ${st.restarts}</span>` : ''}` +
@@ -282,6 +283,10 @@
     const field = (label, input, hint) => { const r = h('label', 'svc-field'); r.innerHTML = `<span>${label}${hint ? `<small>${hint}</small>` : ''}</span>`; r.appendChild(input); card.appendChild(r); return input; };
     const inp = (v, ph) => { const i = h('input', 'set-input'); i.value = v ?? ''; i.placeholder = ph || ''; i.spellcheck = false; return i; };
     const name = field('Nom', inp(d.name, 'api, web, worker…'));
+    const description = h('textarea', 'set-input');
+    description.rows = 2;
+    description.value = typeof d.description === 'string' ? d.description : '';
+    field('Description', description);
     const command = field('Commande', inp(d.command, 'npm run dev'), 'Lancée dans le shell choisi');
     const cwdWrap = h('div', 'svc-row');
     const cwd = inp(d.cwd, '(racine du workspace)');
@@ -326,6 +331,7 @@
       for (const line of env.value.split(/\r?\n/)) { const m = line.match(/^\s*([\w.]+)\s*=\s*(.*)$/); if (m) envObj[m[1]] = m[2]; }
       const out = {
         id: isNew ? uniqueId(s, name.value || command.value.split(' ').pop()) : d.id,
+        description: description.value.trim() || undefined,
         name: name.value.trim() || command.value.trim(), command: command.value.trim(), cwd: cwd.value.trim(),
         shellId: shell.value || undefined, port: port.value ? +port.value : undefined, url: url.value.trim() || undefined,
         env: Object.keys(envObj).length ? envObj : undefined, autostart: autostart.checked, restart: restart.checked,
@@ -348,7 +354,9 @@
     const box = h('div', 'tool-empty');
     if (!d) { box.innerHTML = `<div class="robot big">${tab.space.bot.svg}</div><b>Sélectionnez un service</b>`; s.side.appendChild(box); return; }
     const st = s.status[d.id];
-    box.innerHTML = `<div class="robot big">${tab.space.bot.svg}</div><b>${esc(d.name || d.id)}</b><div class="mono">${esc(d.command)}</div><div>${esc(ST[st?.state]?.[0] || 'Arrêté')}</div>`;
+    box.innerHTML = `<div class="robot big">${tab.space.bot.svg}</div><b>${esc(d.name || d.id)}</b>` +
+      (typeof d.description === 'string' && d.description ? `<div class="sv-description" data-no-i18n>${esc(d.description)}</div>` : '') +
+      `<div class="mono">${esc(d.command)}</div><div>${esc(ST[st?.state]?.[0] || 'Arrêté')}</div>`;
     const row = h('div', 'empty-actions');
     if (st?.sessionId) { const b = h('button', 'tb-btn primary', '▤ Afficher le journal'); b.addEventListener('click', () => attachLogs(tab, d.id)); row.appendChild(b); }
     if (!isUp(st)) { const b = h('button', 'tb-btn', '▶ Démarrer'); b.addEventListener('click', () => start(tab, d)); row.appendChild(b); }

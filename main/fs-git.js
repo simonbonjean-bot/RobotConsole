@@ -45,10 +45,11 @@ async function list(dir, { showHidden } = {}) {
   return out;
 }
 
-async function read(file, maxBytes = 1024 * 1024) {
+async function read(file, maxBytes = 1024 * 1024, textOnly = false) {
   const st = await fsp.stat(file);
   const ext = path.extname(file).toLowerCase();
   const base = { size: st.size, mtime: st.mtimeMs };
+  if (textOnly && ((IMAGE_EXT[ext] && ext !== '.svg') || ext === '.pdf' || ext === '.docx')) return { ...base, kind: 'binary' };
   if (ext === '.pdf' || ext === '.docx') {
     if (st.size > DOCUMENT_MAX) throw new Error('Document trop gros pour être affiché (> 30 Mo)');
     const buf = await fsp.readFile(file);
@@ -57,7 +58,7 @@ async function read(file, maxBytes = 1024 * 1024) {
     const result = await require('mammoth').convertToHtml({ buffer: buf }, { externalFileAccess: false });
     return { ...base, kind: 'docx', html: result.value };
   }
-  if (IMAGE_EXT[ext] && st.size <= IMAGE_MAX) {
+  if (!textOnly && IMAGE_EXT[ext] && st.size <= IMAGE_MAX) {
     const buf = await fsp.readFile(file);
     return { ...base, kind: 'image', dataUrl: `data:${IMAGE_EXT[ext]};base64,${buf.toString('base64')}` };
   }
@@ -232,4 +233,11 @@ function closeAll() {
   for (const id of [...watchers.keys()]) unwatch(id);
 }
 
-module.exports = { register, closeAll };
+async function readPromptDocument(file) {
+  const result = await read(file, 32768, true);
+  if (result.kind !== 'text') throw new Error('Seuls les fichiers texte peuvent être inclus ; utilisez le chemin pour ce document : ' + file);
+  if (result.truncated) throw new Error('Document trop long à inclure (maximum 32 Ko) ; utilisez son chemin : ' + file);
+  return result.content;
+}
+
+module.exports = { register, closeAll, readPromptDocument };

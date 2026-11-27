@@ -53,9 +53,10 @@ function request(pipe, message) {
 async function main() {
   const message = parse(process.argv.slice(2));
   if (message.action === 'help') {
-    console.log('robot-say "Message"\nrobot-say --robot <nom-ou-id> "Message"\nrobot-say --list\nrobot-say --history [--robot <nom-ou-id>]\n\nDétection : terminal intégré, sinon dossier courant. RobotConsole doit être ouvert.\nVoix optionnelle : activer Paramètres > Robots > Voix de synthèse, puis autoriser le robot dans son menu > Voix.');
+    console.log('robot-say "Message"\nrobot-say --robot <nom-ou-id> "Message"\nrobot-say --list\nrobot-say --history [--robot <nom-ou-id>]\n\nMessages : terminal intégré, ou --robot explicite. Hors de RobotConsole, un message sans --robot ne fait rien.\nHistorique : terminal intégré, sinon dossier courant. RobotConsole doit être ouvert pour les opérations explicites.\nVoix optionnelle : activer Paramètres > Robots > Voix de synthèse, puis autoriser le robot dans son menu > Voix.');
     return;
   }
+  if (message.action === 'say' && !message.session && !message.robot) return;
   const appData = process.platform === 'win32' ? process.env.APPDATA :
     process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') :
       (process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'));

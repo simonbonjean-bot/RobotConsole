@@ -23,7 +23,7 @@ if (!process.versions.electron) {
     const result = spawnSync(require('electron'), [__filename], { stdio: 'inherit', env, timeout: 45000 });
     if (result.error) throw result.error;
     status = result.status ?? 1;
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
   process.exit(status);
 }
 
@@ -54,6 +54,11 @@ require('../main/speech-voice').SpeechVoice.prototype.speak = async function (te
   selectedVoices.push(voiceName);
 };
 app.disableHardwareAcceleration();
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('console-message', (_event, details) => {
+    if (details.level === 'error') console.error('[renderer]', details.message);
+  });
+});
 require('../main');
 
 app.whenReady().then(async () => {
@@ -70,7 +75,7 @@ app.whenReady().then(async () => {
       return false;
     })()`);
     assert.equal(ready, true, 'Application restores both robots');
-    await win.webContents.executeJavaScript(`CAI.openTab(CAI.spaces[0], { kind: 'terminal' }); void 0;`);
+    await win.webContents.executeJavaScript(`CAI.openTab(CAI.spaces[0], { kind: 'terminal', icon: '🧪' }, { title: 'Build <script>' }); void 0;`);
     const created = sent.find((message) => message.t === 'create');
     assert.ok(created, 'Terminal creation reaches the main process');
     assert.equal(created.env.ROBOTCONSOLE_SESSION, created.id);
@@ -83,12 +88,31 @@ app.whenReady().then(async () => {
     assert.equal(created.env.ROBOTCONSOLE_SPEECH_PIPE, pipe);
     const first = await request(pipe, { action: 'say', session: created.id, text: "C'est terminé" });
     assert.equal(first.rid, 'robotone');
+    const placement = await win.webContents.executeJavaScript(`(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      document.querySelectorAll('.bubble').forEach((bubble) => bubble.getAnimations().forEach((animation) => animation.finish()));
+      const space = CAI.spaces[0];
+      const tab = space.tabs[0].el.getBoundingClientRect();
+      const bubble = document.querySelector('.bubble-zone').getBoundingClientRect();
+      const crew = [...document.querySelectorAll('.bubble-crew')].find((el) => el.querySelector('.bubble-name').textContent === space.name);
+      const bar = document.getElementById('crew').getBoundingClientRect();
+      const message = crew.getBoundingClientRect();
+      return {
+        belowTab: Math.abs(bubble.left - tab.left - 2) < 1 && bubble.top >= tab.bottom + 8,
+        outsideBar: crew.parentElement === document.body && message.top >= bar.bottom + 8,
+      };
+    })()`);
+    assert.equal(placement.belowTab, true, 'IPC delivers the originating session for tab placement');
+    assert.equal(placement.outsideBar, true, 'The message floats below and outside the robot bar');
     await win.webContents.executeJavaScript(`CAI.moveTab(CAI.spaces[0].tabs[0], CAI.spaces[1]); void 0;`);
     const moved = await request(pipe, { action: 'say', session: created.id, text: 'Moved tab' });
     assert.equal(moved.rid, 'robottwo');
     const history = await request(pipe, { action: 'history', robot: 'robottwo' });
     assert.equal(history.at(-1).text, 'Moved tab');
     assert.equal(history.at(-1).source, 'cli');
+    assert.equal(history.at(-1).tab.title, 'Build <script>');
+    assert.equal(history.at(-1).tab.icon, '🧪');
+    assert.equal(history.at(-1).tab.session, created.id);
     assert.ok(fs.existsSync(path.join(process.env.ROBOTCONSOLE_USERDATA, 'speech-history.jsonl')));
     await win.webContents.executeJavaScript(`CAI.spaces[0].robotEl.click(); void 0;`);
     const panel = await win.webContents.executeJavaScript(`(async () => {
@@ -115,6 +139,22 @@ app.whenReady().then(async () => {
     assert.equal(panel.oldestPresent, true);
     assert.equal(panel.htmlEscaped, true);
     assert.equal(panel.newest, "C'est terminé");
+    const navigation = await win.webContents.executeJavaScript(`(() => {
+      const link = document.querySelector('.rp-speech-list .speech-tab');
+      const label = link.textContent;
+      link.querySelector('span:last-child').click();
+      return {
+        label,
+        activeRobot: CAI.activeSpace.rid,
+        session: CAI.activeSpace.activeTab.ptyId,
+        menuClosed: document.querySelector('.robot-picker').classList.contains('hidden'),
+      };
+    })()`);
+    assert.ok(navigation.label.includes('🧪') && navigation.label.includes('Build <script>'), 'History displays the saved title and emoji without interpreting HTML');
+    assert.equal(navigation.activeRobot, 'robottwo', 'The message link follows a tab moved to another robot');
+    assert.equal(navigation.session, created.id);
+    assert.equal(navigation.menuClosed, true);
+    await win.webContents.executeJavaScript(`CAI.spaces[0].robotEl.click(); void 0;`);
     await request(pipe, { action: 'say', robot: 'robotone', text: 'Live menu update' });
     const updated = await win.webContents.executeJavaScript(`(async () => {
       for (let i = 0; i < 100; i++) {
@@ -184,12 +224,17 @@ app.whenReady().then(async () => {
     assert.equal(await waitForSkillButtons(), true);
     assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('#set-robot-skill .skill-actions button')[1].disabled`), true, 'Workspace install is disabled when no workspace is open');
     const skillState = await win.webContents.executeJavaScript(`api.skillStatus()`);
+    assert.equal(skillState.user.length, 8, 'Settings checks all four skills for both assistant locations');
     assert.ok(skillState.user.every((file) => file.path.startsWith(testHome)), 'The test never installs into the real home directory');
     await win.webContents.executeJavaScript(`document.querySelector('#set-robot-skill .skill-actions button').click(); void 0;`);
     assert.equal(await waitForSkillButtons(), true);
     const source = fs.readFileSync(path.join(__dirname, '..', 'skills', 'robot-say', 'SKILL.md'));
     const installedFiles = ['.claude', '.agents'].map((folder) => path.join(testHome, folder, 'skills', 'robot-say', 'SKILL.md'));
     for (const file of installedFiles) assert.ok(fs.readFileSync(file).equals(source));
+    for (const skill of ['robot-open', 'robot-services', 'robot-tests']) {
+      const skillSource = fs.readFileSync(path.join(__dirname, '..', 'skills', skill, 'SKILL.md'));
+      for (const folder of ['.claude', '.agents']) assert.ok(fs.readFileSync(path.join(testHome, folder, 'skills', skill, 'SKILL.md')).equals(skillSource));
+    }
     fs.writeFileSync(installedFiles[0], 'User customization');
     const waitForSkillConfirmation = async () => win.webContents.executeJavaScript(`(async () => {
       for (let i = 0; i < 100; i++) {
@@ -257,7 +302,21 @@ app.whenReady().then(async () => {
       return { value: select.value, disabled: select.selectedOptions[0].disabled };
     })()`);
     assert.deepEqual(missingVoice, { value: 'espeak:removed', disabled: true }, 'A missing saved voice is shown explicitly instead of silently switching');
+    const todo = path.join(process.env.ROBOTCONSOLE_USERDATA, 'todo with spaces.md');
+    fs.writeFileSync(todo, '# Todo\n\n- Open in RobotConsole\n');
+    assert.equal((await request(pipe, { action: 'open', session: created.id, file: todo })).rid, 'robottwo');
+    const opened = await win.webContents.executeJavaScript(`(() => {
+      const tab = CAI.activeSpace.activeTab;
+      return { rid: CAI.activeSpace.rid, kind: tab.kind, file: tab.file, id: tab.id };
+    })()`);
+    assert.equal(opened.rid, 'robottwo', 'Opening follows the moved terminal and activates its robot');
+    assert.equal(opened.kind, 'editor');
+    assert.equal(opened.file, todo);
+    await request(pipe, { action: 'open', session: created.id, file: todo });
+    assert.equal(await win.webContents.executeJavaScript(`CAI.activeSpace.activeTab.id`), opened.id, 'Repeated opening reuses the editor tab');
+    await assert.rejects(request(pipe, { action: 'open', session: created.id, file: todo + '.missing' }), /ENOENT/);
     console.log('Speech app: IPC, complete live history, individual deletion and confirmed clear passed.');
+    console.log('Robot open: real IPC, moved terminal, focused editor tab and tab reuse passed.');
     console.log('Skill settings: user/folder installs and protected custom copies passed.');
     console.log('Robot voice: consent, voice selection, missing voices and persistence passed.');
   } catch (error) { console.error(error); status = 1; }

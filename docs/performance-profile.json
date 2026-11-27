@@ -1,0 +1,626 @@
+{
+  "at": "2026-11-27T00:42:20.437Z",
+  "platform": "win32 10.0.26100 x64",
+  "electron": "45.4.1",
+  "before": "5b0856c91d07cb2c7d08c0a8f58ac15fa3acf831",
+  "after": {
+    "head": "03d8b8b949a5da5d51af3d50cca1e262d2abd5f3",
+    "dirty": true,
+    "snapshotSha256": "a4de63e3d9e45c6b7f098ba0faeb9a5279d34487daadc080386627d173e40abf"
+  },
+  "scope": "Temporary 4-space/20-tab app, synthetic terminal output, real Git and local HTTP/WebSocket mobile UI; no live CLI or PostgreSQL",
+  "metrics": {
+    "cpu": "Sum of Electron process cumulative CPU deltas over 5 seconds, expressed as percent of one logical core (can exceed 100%)",
+    "memory": "50 ms sampled sum of Electron working sets in MiB (shared pages may be counted more than once); mainHeapMiB is the main-process JS heap only",
+    "restore": "Child script start to restored selected terminal ready; firstInput also confirms a synthetic key reached the mocked PTY client",
+    "folder": "First explorer activation to 3000 rendered rows; listMs measures three real directory reads through IPC",
+    "terminal": "8000 uniquely numbered lines injected at PtyClient.onData, through the actual main IPC and xterm; ordered content asserted",
+    "responsiveness": "10 ms renderer heartbeat delay, not hardware keyboard-to-screen latency; maximum and P95 include sample counts",
+    "mobile": "Actual mobile UI over authenticated loopback HTTP/WebSocket; initial history/snapshot and one exact incremental marker"
+  },
+  "fixture": {
+    "spaces": 4,
+    "tabs": 20,
+    "files": 2500,
+    "directories": 500,
+    "speechMessages": 100000,
+    "terminalLines": 8000,
+    "speechBytes": 38777780
+  },
+  "runs": [
+    {
+      "label": "before",
+      "iteration": 1,
+      "restore": {
+        "firstUsableMs": 3832.91,
+        "firstInputMs": 3954.36,
+        "allMountedMs": 3955.83,
+        "tabs": 20,
+        "startupSettledMs": 9318.55
+      },
+      "idleHidden": {
+        "oneCorePercent": 103.94,
+        "durationMs": 5004.98
+      },
+      "folder": {
+        "openMs": 1720.08,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          694.78,
+          665.94,
+          660.38
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 127.68,
+        "durationMs": 5003.88
+      },
+      "burst": {
+        "elapsedMs": 4444.32,
+        "changes": 40,
+        "gitCommands": 16,
+        "gitStatusCommands": 8,
+        "peakConcurrentGit": 8,
+        "hiddenExplorersUpdated": 4
+      },
+      "terminal": {
+        "elapsedMs": 895.18,
+        "before": {
+          "mainHeapMiB": 25.13,
+          "appWorkingSetMiB": 1206.92
+        },
+        "peak": {
+          "mainHeapMiB": 27.7,
+          "appWorkingSetMiB": 1239.15
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 846.5,
+          "heartbeatP95Ms": 846.5,
+          "heartbeatSamples": 5
+        }
+      },
+      "speech": {
+        "elapsedMs": 5505.27,
+        "before": {
+          "mainHeapMiB": 23.03,
+          "appWorkingSetMiB": 1227.81
+        },
+        "peak": {
+          "mainHeapMiB": 410.99,
+          "appWorkingSetMiB": 1823.45
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            25004,
+            25004,
+            25004,
+            25004,
+            25005
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 5949.77,
+        "before": {
+          "mainHeapMiB": 409.65,
+          "appWorkingSetMiB": 1841.59
+        },
+        "peak": {
+          "mainHeapMiB": 550.46,
+          "appWorkingSetMiB": 2123.53
+        },
+        "value": {
+          "historyEntries": 25006,
+          "heartbeatMaxMs": 906.8000000007451,
+          "heartbeatP95Ms": 12.400000000372529,
+          "heartbeatSamples": 257,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 57.91
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 146.68,
+        "appWorkingSetMiB": 2079.59
+      }
+    },
+    {
+      "label": "after",
+      "iteration": 1,
+      "restore": {
+        "firstUsableMs": 9108.24,
+        "firstInputMs": 9110.88,
+        "allMountedMs": 9965.9,
+        "tabs": 20,
+        "startupSettledMs": 9966.67
+      },
+      "idleHidden": {
+        "oneCorePercent": 98.34,
+        "durationMs": 5008.62
+      },
+      "folder": {
+        "openMs": 4846.87,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          297.81,
+          253.06,
+          327.71
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 132.41,
+        "durationMs": 5013.46
+      },
+      "burst": {
+        "elapsedMs": 3151.44,
+        "changes": 40,
+        "gitCommands": 2,
+        "gitStatusCommands": 1,
+        "peakConcurrentGit": 1,
+        "hiddenExplorersUpdated": 0
+      },
+      "terminal": {
+        "elapsedMs": 848.46,
+        "before": {
+          "mainHeapMiB": 10.42,
+          "appWorkingSetMiB": 1050.9
+        },
+        "peak": {
+          "mainHeapMiB": 10.53,
+          "appWorkingSetMiB": 1086.11
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 285.59999999962747,
+          "heartbeatP95Ms": 285.59999999962747,
+          "heartbeatSamples": 15
+        }
+      },
+      "speech": {
+        "elapsedMs": 72.9,
+        "before": {
+          "mainHeapMiB": 10.54,
+          "appWorkingSetMiB": 1086.11
+        },
+        "peak": {
+          "mainHeapMiB": 12.68,
+          "appWorkingSetMiB": 1088.21
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            100,
+            100,
+            100,
+            100,
+            100
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 1637.13,
+        "before": {
+          "mainHeapMiB": 7.22,
+          "appWorkingSetMiB": 1087.97
+        },
+        "peak": {
+          "mainHeapMiB": 11.05,
+          "appWorkingSetMiB": 1304.8
+        },
+        "value": {
+          "historyEntries": 100,
+          "heartbeatMaxMs": 445.79999999981374,
+          "heartbeatP95Ms": 445.79999999981374,
+          "heartbeatSamples": 18,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 52.82
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 11.06,
+        "appWorkingSetMiB": 1357.98
+      }
+    },
+    {
+      "label": "after",
+      "iteration": 2,
+      "restore": {
+        "firstUsableMs": 14011.17,
+        "firstInputMs": 14013.93,
+        "allMountedMs": 15162.86,
+        "tabs": 20,
+        "startupSettledMs": 15164.05
+      },
+      "idleHidden": {
+        "oneCorePercent": 104.13,
+        "durationMs": 5009.6
+      },
+      "folder": {
+        "openMs": 5048.06,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          379.79,
+          326.1,
+          314.14
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 127.12,
+        "durationMs": 5010.76
+      },
+      "burst": {
+        "elapsedMs": 4652.96,
+        "changes": 40,
+        "gitCommands": 2,
+        "gitStatusCommands": 1,
+        "peakConcurrentGit": 1,
+        "hiddenExplorersUpdated": 0
+      },
+      "terminal": {
+        "elapsedMs": 823.42,
+        "before": {
+          "mainHeapMiB": 10.75,
+          "appWorkingSetMiB": 1027.76
+        },
+        "peak": {
+          "mainHeapMiB": 10.97,
+          "appWorkingSetMiB": 1065.44
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 322.90000000037253,
+          "heartbeatP95Ms": 322.90000000037253,
+          "heartbeatSamples": 13
+        }
+      },
+      "speech": {
+        "elapsedMs": 186.53,
+        "before": {
+          "mainHeapMiB": 10.97,
+          "appWorkingSetMiB": 1065.44
+        },
+        "peak": {
+          "mainHeapMiB": 11.79,
+          "appWorkingSetMiB": 1068.3
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            100,
+            100,
+            100,
+            100,
+            100
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 1718.86,
+        "before": {
+          "mainHeapMiB": 7.61,
+          "appWorkingSetMiB": 1064.18
+        },
+        "peak": {
+          "mainHeapMiB": 11.36,
+          "appWorkingSetMiB": 1287.46
+        },
+        "value": {
+          "historyEntries": 100,
+          "heartbeatMaxMs": 359.5,
+          "heartbeatP95Ms": 359.5,
+          "heartbeatSamples": 19,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 78.97
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 11.38,
+        "appWorkingSetMiB": 1345.6
+      }
+    },
+    {
+      "label": "before",
+      "iteration": 2,
+      "restore": {
+        "firstUsableMs": 5889.7,
+        "firstInputMs": 6041.82,
+        "allMountedMs": 6044.99,
+        "tabs": 20,
+        "startupSettledMs": 10792.11
+      },
+      "idleHidden": {
+        "oneCorePercent": 86.71,
+        "durationMs": 5004.08
+      },
+      "folder": {
+        "openMs": 1205.23,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          711.51,
+          614.34,
+          607.76
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 121.5,
+        "durationMs": 5008.52
+      },
+      "burst": {
+        "elapsedMs": 3351.38,
+        "changes": 40,
+        "gitCommands": 16,
+        "gitStatusCommands": 8,
+        "peakConcurrentGit": 8,
+        "hiddenExplorersUpdated": 4
+      },
+      "terminal": {
+        "elapsedMs": 3229.21,
+        "before": {
+          "mainHeapMiB": 23.19,
+          "appWorkingSetMiB": 1124.62
+        },
+        "peak": {
+          "mainHeapMiB": 27.94,
+          "appWorkingSetMiB": 1370.54
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 2799.5,
+          "heartbeatP95Ms": 2799.5,
+          "heartbeatSamples": 2
+        }
+      },
+      "speech": {
+        "elapsedMs": 3206.04,
+        "before": {
+          "mainHeapMiB": 26.35,
+          "appWorkingSetMiB": 1365.81
+        },
+        "peak": {
+          "mainHeapMiB": 410.39,
+          "appWorkingSetMiB": 1810.2
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            25006,
+            25006,
+            25006,
+            25006,
+            25006
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 2620.23,
+        "before": {
+          "mainHeapMiB": 410.41,
+          "appWorkingSetMiB": 1798.47
+        },
+        "peak": {
+          "mainHeapMiB": 546.22,
+          "appWorkingSetMiB": 2138.15
+        },
+        "value": {
+          "historyEntries": 25006,
+          "heartbeatMaxMs": 697.5999999996275,
+          "heartbeatP95Ms": 259.19999999925494,
+          "heartbeatSamples": 40,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 54.07
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 7.46,
+        "appWorkingSetMiB": 1984.09
+      }
+    },
+    {
+      "label": "before",
+      "iteration": 3,
+      "restore": {
+        "firstUsableMs": 2248.91,
+        "firstInputMs": 2373.73,
+        "allMountedMs": 2381.73,
+        "tabs": 20,
+        "startupSettledMs": 8622.44
+      },
+      "idleHidden": {
+        "oneCorePercent": 94.59,
+        "durationMs": 5000.5
+      },
+      "folder": {
+        "openMs": 1368.85,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          768.28,
+          727.82,
+          764.04
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 105.25,
+        "durationMs": 5006.1
+      },
+      "burst": {
+        "elapsedMs": 3198.65,
+        "changes": 40,
+        "gitCommands": 16,
+        "gitStatusCommands": 8,
+        "peakConcurrentGit": 8,
+        "hiddenExplorersUpdated": 4
+      },
+      "terminal": {
+        "elapsedMs": 4203.31,
+        "before": {
+          "mainHeapMiB": 22.68,
+          "appWorkingSetMiB": 1097.28
+        },
+        "peak": {
+          "mainHeapMiB": 22.94,
+          "appWorkingSetMiB": 1332.5
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 2818.2999999998137,
+          "heartbeatP95Ms": 2818.2999999998137,
+          "heartbeatSamples": 3
+        }
+      },
+      "speech": {
+        "elapsedMs": 3930.54,
+        "before": {
+          "mainHeapMiB": 22.94,
+          "appWorkingSetMiB": 1328.07
+        },
+        "peak": {
+          "mainHeapMiB": 410.4,
+          "appWorkingSetMiB": 1776.7
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            25006,
+            25006,
+            25006,
+            25006,
+            25006
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 2537,
+        "before": {
+          "mainHeapMiB": 410.42,
+          "appWorkingSetMiB": 1762.7
+        },
+        "peak": {
+          "mainHeapMiB": 546.18,
+          "appWorkingSetMiB": 2108.66
+        },
+        "value": {
+          "historyEntries": 25006,
+          "heartbeatMaxMs": 608.3000000007451,
+          "heartbeatP95Ms": 62.09999999962747,
+          "heartbeatSamples": 60,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 55.18
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 7.46,
+        "appWorkingSetMiB": 1936.29
+      }
+    },
+    {
+      "label": "after",
+      "iteration": 3,
+      "restore": {
+        "firstUsableMs": 2574.59,
+        "firstInputMs": 2577.18,
+        "allMountedMs": 3098.71,
+        "tabs": 20,
+        "startupSettledMs": 3099.42
+      },
+      "idleHidden": {
+        "oneCorePercent": 97.47,
+        "durationMs": 5002.49
+      },
+      "folder": {
+        "openMs": 3819.57,
+        "rowsPerExplorer": 3000,
+        "listMs": [
+          266.85,
+          216.94,
+          265.15
+        ]
+      },
+      "idleVisible": {
+        "oneCorePercent": 124.45,
+        "durationMs": 5006.81
+      },
+      "burst": {
+        "elapsedMs": 2361.58,
+        "changes": 40,
+        "gitCommands": 2,
+        "gitStatusCommands": 1,
+        "peakConcurrentGit": 1,
+        "hiddenExplorersUpdated": 0
+      },
+      "terminal": {
+        "elapsedMs": 1205.62,
+        "before": {
+          "mainHeapMiB": 19.03,
+          "appWorkingSetMiB": 1089.34
+        },
+        "peak": {
+          "mainHeapMiB": 19.25,
+          "appWorkingSetMiB": 1127.85
+        },
+        "value": {
+          "exactLines": 8000,
+          "heartbeatMaxMs": 563.3999999994412,
+          "heartbeatP95Ms": 563.3999999994412,
+          "heartbeatSamples": 12
+        }
+      },
+      "speech": {
+        "elapsedMs": 232.84,
+        "before": {
+          "mainHeapMiB": 19.26,
+          "appWorkingSetMiB": 1127.85
+        },
+        "peak": {
+          "mainHeapMiB": 20.2,
+          "appWorkingSetMiB": 1129.07
+        },
+        "value": {
+          "reads": 5,
+          "entriesPerRead": [
+            100,
+            100,
+            100,
+            100,
+            100
+          ]
+        }
+      },
+      "mobile": {
+        "elapsedMs": 1888.05,
+        "before": {
+          "mainHeapMiB": 15.07,
+          "appWorkingSetMiB": 1110.29
+        },
+        "peak": {
+          "mainHeapMiB": 19.13,
+          "appWorkingSetMiB": 1324.79
+        },
+        "value": {
+          "historyEntries": 100,
+          "heartbeatMaxMs": 436,
+          "heartbeatP95Ms": 258.29999999981374,
+          "heartbeatSamples": 25,
+          "retainedLines": 5018,
+          "incremental": 1,
+          "incrementalMs": 53.17
+        },
+        "periodicSnapshotsIn4500Ms": 0
+      },
+      "memory": {
+        "mainHeapMiB": 7.17,
+        "appWorkingSetMiB": 1292.91
+      }
+    }
+  ]
+}

@@ -1,9 +1,11 @@
 ---
 name: robot-say
-description: Keep the user informed of task progress and questions through their RobotConsole robot. Use when asked to notify the robot, speak through robot-say, or announce milestones, questions, blockers and completion in RobotConsole.
+description: Keep the user informed of task progress and questions through their RobotConsole robot, only from an integrated RobotConsole terminal. Use when asked to notify the robot, speak through robot-say, or announce milestones, questions, blockers and completion in RobotConsole.
 ---
 
 # Robot progress updates
+
+Before sending any notification, check that `ROBOTCONSOLE_SESSION` and `ROBOTCONSOLE_SPEECH_PIPE` are present in the environment. If either is missing, do not run this skill's commands or try to discover a robot. Continue the user's task normally, without robot notifications or an error message.
 
 Use the local `robot-say` command to send brief, factual progress messages in the user's language. It displays a bubble, saves history, and optionally reads the message aloud if the user enabled speech synthesis in RobotConsole.
 
@@ -44,7 +46,7 @@ Then present that same question through the CLI's normal question mechanism.
 
 - In a RobotConsole terminal, preserve the inherited `ROBOTCONSOLE_SESSION`, `ROBOTCONSOLE_SPEECH_PIPE` and `ROBOTCONSOLE_USERDATA` variables. The command finds the robot currently containing that terminal, including after moving its tab.
 - Do not automatically choose the first robot or broadcast to every robot.
-- Outside RobotConsole, the current directory can identify a unique robot. If selection is ambiguous, run `robot-say --list` and ask the user which robot to use, then pass `--robot <id>` for subsequent messages.
+- Outside RobotConsole, skip automatic notifications. A plain `robot-say "Message"` intentionally does nothing without an inherited terminal session. Explicit manual targeting with `--robot <id>` remains available, but this skill must not use it to bypass the environment check.
 - `robot-say --history` reads recent messages for the detected robot; `robot-say --history --robot <id>` selects an explicit robot.
 
 ## Errors

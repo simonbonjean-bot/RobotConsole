@@ -85,9 +85,11 @@
 
   // ---------- Boîtes de dialogue ----------
   // choices : [{ label, value, primary?, danger? }] remplace les boutons OK / Annuler (Échap renvoie null)
-  function dialog({ title, message, input, options, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select, choices }) {
+  // parent/signal : dialogue local à un panneau, annulé quand ce panneau se ferme.
+  function dialog({ title, message, input, options, value = '', placeholder = '', ok = 'OK', cancel = 'Annuler', danger, select, choices, parent = document.body, signal }) {
     return new Promise((resolve) => {
       const ov = h('div', 'overlay dlg-overlay');
+      if (parent !== document.body) ov.classList.add('dlg-scoped');
       const card = h('div', 'dlg');
       card.appendChild(h('h3', '', esc(title)));
       if (message) card.appendChild(h('p', 'dlg-msg', message));
@@ -126,8 +128,18 @@
       } else row.append(bCancel, bOk);
       card.appendChild(row);
       ov.appendChild(card);
-      document.body.appendChild(ov);
-      const done = (v) => { ov.remove(); resolve(v); };
+      parent.appendChild(ov);
+      let settled = false;
+      const abort = () => done(null);
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', abort);
+        ov.remove();
+        resolve(v);
+      };
+      if (signal?.aborted) { done(null); return; }
+      signal?.addEventListener('abort', abort, { once: true });
       bCancel.addEventListener('click', () => done(null));
       if (!choices) bOk.addEventListener('click', () => done(field ? field.value : true));
       ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(null); });

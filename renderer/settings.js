@@ -12,6 +12,7 @@
     scrollback: 8000,
     rightClick: 'menu',
     confirmMultilinePaste: true,
+    promptSpellcheck: true,
     robotAnimations: true,
     robotBubbles: true,
     robotVoice: false,
@@ -44,6 +45,7 @@
     toolAnim: 'tap', // animation de l'icône « Travaille sur » pendant l'activité de la zone
     robotBodyInZone: true, // corps du robot qui dépasse de l'en-tête sur l'onglet courant
     crewStyle: 'classic', // style de la barre des robots : classic, compact, dock, labels, flat
+    shortcuts: {},
   };
 
   const FONTS = [
@@ -94,6 +96,74 @@
   };
 
   let overlay = null;
+  let selectedTab = 'appearance';
+  let selectPanel = null;
+  let previousFocus = null;
+  let refreshShortcuts = null;
+
+  function shortcutsSection() {
+    const sec = section('Raccourcis clavier');
+    sec.id = 'set-shortcuts';
+    sec.appendChild(el('p', 'set-help', 'Cliquez sur un raccourci puis appuyez sur la combinaison souhaitée. Échap annule. Fn dépend du clavier et ne peut pas être capturée seule.'));
+    sec.appendChild(el('p', 'set-help', 'La navigation entre zones reste sur l’écran courant. Les workspaces récents sont parcourus par nom ; leur fenêtre est activée ou ouverte sans fermer les sessions.'));
+    const list = el('div', 'shortcut-list');
+    const status = el('p', 'set-help shortcut-status');
+    status.setAttribute('role', 'status');
+    const render = () => {
+      list.replaceChildren();
+      for (const action of Shortcuts.actions) {
+        const r = el('div', 'set-row shortcut-row');
+        const label = el('span', 'set-label');
+        label.textContent = action.label;
+        const controls = el('div', 'shortcut-controls');
+        const edit = el('button', 'tb-btn shortcut-edit');
+        edit.dataset.action = action.id;
+        const display = () => { edit.textContent = Shortcuts.bindings(action, data.shortcuts).map((b) => Shortcuts.format(b, Platform.isMac)).join(' / ') || I18n.t('Désactivé'); };
+        display();
+        edit.setAttribute('aria-label', I18n.t('Modifier : {0}', I18n.t(action.label)));
+        edit.addEventListener('click', () => {
+          edit.dataset.recording = 'true';
+          edit.textContent = I18n.t('Appuyez sur les touches…');
+          status.textContent = '';
+          edit.focus();
+        });
+        edit.addEventListener('blur', () => { delete edit.dataset.recording; display(); });
+        edit.addEventListener('keydown', (e) => {
+          if (!edit.dataset.recording) return;
+          e.preventDefault(); e.stopPropagation();
+          if (e.key === 'Escape') { delete edit.dataset.recording; display(); return; }
+          if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+          const binding = Shortcuts.fromEvent(e);
+          if (!binding) { status.textContent = I18n.t('Combinaison non prise en charge. Utilisez Ctrl, Alt, Maj ou une touche de fonction (hors F12).'); return; }
+          const clash = Shortcuts.conflict(action.id, [binding], data.shortcuts, Platform.isMac);
+          if (clash) { status.textContent = I18n.t('Déjà utilisé par : {0}', I18n.t(clash.label)); return; }
+          set({ shortcuts: { ...data.shortcuts, [action.id]: [binding] } });
+          delete edit.dataset.recording;
+          display();
+          status.textContent = I18n.t('Raccourci enregistré');
+        });
+        const disable = el('button', 'tb-btn', 'Désactiver');
+        disable.addEventListener('click', () => { set({ shortcuts: { ...data.shortcuts, [action.id]: [] } }); display(); });
+        const reset = el('button', 'tb-btn', 'Par défaut');
+        reset.addEventListener('click', () => {
+          const next = { ...data.shortcuts };
+          delete next[action.id];
+          const clash = Shortcuts.conflict(action.id, action.defaults, next, Platform.isMac);
+          if (clash) { status.textContent = I18n.t('Déjà utilisé par : {0}', I18n.t(clash.label)); return; }
+          set({ shortcuts: next }); display();
+        });
+        controls.append(edit, disable, reset);
+        r.append(label, controls); list.appendChild(r);
+      }
+    };
+    const resetAll = el('button', 'tb-btn', 'Réinitialiser les raccourcis');
+    resetAll.addEventListener('click', () => { set({ shortcuts: {} }); status.textContent = ''; render(); });
+    sec.append(resetAll, list, status);
+    sec.appendChild(el('p', 'set-help', 'Les raccourcis locaux du terminal et de l’éditeur (copier, coller, enregistrer, rechercher…) restent gérés par leurs outils.'));
+    refreshShortcuts = () => { status.textContent = ''; render(); };
+    render();
+    return sec;
+  }
 
   function row(label, control, hint) {
     const r = el('label', 'set-row');
@@ -384,9 +454,9 @@
   }
 
   function robotSkillSection() {
-    const sec = section('Skill robot-say');
+    const sec = section('Skills RobotConsole');
     sec.id = 'set-robot-skill';
-    sec.appendChild(el('p', 'set-help', 'Installe les instructions pour Claude Code, Codex et Copilot afin de partager les avancées et les questions avec le robot.'));
+    sec.appendChild(el('p', 'set-help', 'Installe robot-say, robot-open, robot-services et robot-tests pour Claude Code, Codex et Copilot : messages, ouverture de fichiers et configuration du projet.'));
     const actions = el('div', 'skill-actions');
     const user = el('button', 'tb-btn primary', 'Installer pour tous mes projets');
     const workspace = el('button', 'tb-btn', 'Installer dans ce workspace');
@@ -421,15 +491,15 @@
         }
         let result = await window.api.installSkill(options);
         if (result.conflict) {
-          const message = I18n.t('Les copies suivantes diffèrent du skill fourni. Les remplacer effacera leurs personnalisations :') +
+          const message = I18n.t('Les copies suivantes diffèrent des skills fournis. Les remplacer effacera leurs personnalisations :') +
             '<br><br>' + result.files.map((file) => `<code>${UI.esc(file)}</code>`).join('<br>');
-          if (!await UI.confirm('Remplacer le skill existant ?', message, { ok: 'Remplacer', danger: true })) return;
+          if (!await UI.confirm('Remplacer les skills existants ?', message, { ok: 'Remplacer', danger: true })) return;
           result = await window.api.installSkill({ ...options, force: true });
         }
-        UI.toast(I18n.t('Skill installé pour Claude Code, Codex et Copilot. Redémarrez votre assistant.'), { ms: 6000 });
+        UI.toast(I18n.t('Skills installés pour Claude Code, Codex et Copilot. Redémarrez votre assistant.'), { ms: 6000 });
         await refresh();
       } catch (error) {
-        UI.toast(I18n.t("Impossible d'installer le skill : {0}", error.message), { kind: 'error', ms: 6000 });
+        UI.toast(I18n.t("Impossible d'installer les skills : {0}", error.message), { kind: 'error', ms: 6000 });
       } finally {
         busy = false;
         enable();
@@ -441,9 +511,9 @@
     busy = true;
     enable();
     refresh().catch((error) => {
-      status.textContent = I18n.t("Impossible de vérifier le skill : {0}", error.message);
+      status.textContent = I18n.t("Impossible de vérifier les skills : {0}", error.message);
     }).finally(() => { busy = false; enable(); });
-    sec.appendChild(el('p', 'set-help', 'Le skill ne remplace pas la commande robot-say. Celle-ci est disponible dans les nouveaux terminaux RobotConsole ; hors de RobotConsole, installez-la avec npm link.'));
+    sec.appendChild(el('p', 'set-help', 'Les skills sont des instructions. Les commandes robot-say et robot-open sont disponibles dans les nouveaux terminaux RobotConsole ; robot-open nécessite un terminal intégré.'));
     return sec;
   }
 
@@ -454,9 +524,114 @@
     return s;
   }
 
+  function promptAssistantForm(run) {
+    const form = el('div', 'prompt-assistant-config');
+    const fields = el('div', 'prompt-assistant-fields');
+    const status = el('div', 'set-help prompt-assistant-config-status');
+    status.setAttribute('role', 'status');
+    const error = el('div', 'prompt-error');
+    error.setAttribute('role', 'alert');
+    let keyStorageAvailable = false;
+    let busy = false;
+    let loaded = false;
+    const field = (name, text, tag = 'input') => {
+      const input = el(tag, 'set-input');
+      input.dataset.promptField = name;
+      const label = el('label', 'prompt-assistant-field');
+      const caption = el('span');
+      caption.textContent = I18n.t(text);
+      label.append(caption, input);
+      fields.appendChild(label);
+      return input;
+    };
+    const provider = field('provider', 'Fournisseur', 'select');
+    for (const [value, text] of [['cli', 'Claude CLI (connexion existante)'], ['api', 'API Anthropic (clé API)']]) {
+      const option = el('option');
+      option.value = value;
+      option.textContent = I18n.t(text);
+      provider.appendChild(option);
+    }
+    const cliPath = field('cliPath', 'Chemin Claude CLI (vide = automatique)');
+    const model = field('model', 'Modèle (obligatoire pour l’API)');
+    const apiKey = field('apiKey', 'Clé API Anthropic');
+    apiKey.type = 'password';
+    apiKey.autocomplete = 'off';
+    const removeKey = field('removeKey', 'Supprimer la clé enregistrée');
+    removeKey.type = 'checkbox';
+    removeKey.classList.remove('set-input');
+    const instructions = field('instructions', 'Instructions de pré-rédaction', 'textarea');
+    instructions.rows = 3;
+    const save = el('button', 'tb-btn prompt-save-assistant');
+    save.type = 'button';
+    save.textContent = I18n.t('Enregistrer la configuration IA');
+    function setBusy(value) {
+      busy = value;
+      for (const control of form.querySelectorAll('input, select, textarea, button')) control.disabled = busy || !loaded;
+      apiKey.disabled = busy || !loaded || !keyStorageAvailable;
+      form.setAttribute('aria-busy', String(busy || !loaded));
+    }
+    function show(config) {
+      provider.value = config.provider;
+      cliPath.value = config.cliPath;
+      model.value = config.model;
+      instructions.value = config.instructions;
+      apiKey.value = '';
+      removeKey.checked = false;
+      keyStorageAvailable = config.encryptionAvailable;
+      apiKey.placeholder = I18n.t(config.hasKey ? 'Clé enregistrée (chiffrée)' : 'Aucune clé enregistrée');
+      status.textContent = I18n.t(config.encryptionAvailable
+        ? 'La clé est chiffrée par le système et conservée hors du workspace.'
+        : 'Stockage sécurisé indisponible : utilisez Claude CLI.');
+      loaded = true;
+      setBusy(busy);
+    }
+    async function perform(action) {
+      if (busy) return;
+      error.textContent = '';
+      setBusy(true);
+      try { await action(); }
+      catch (failure) { error.textContent = I18n.t(failure.message); }
+      finally { setBusy(false); }
+    }
+    save.addEventListener('click', () => {
+      void (run || perform)(async () => {
+        const config = await window.api.savePromptAssistantSettings({
+          provider: provider.value, cliPath: cliPath.value, model: model.value,
+          instructions: instructions.value, apiKey: apiKey.value, removeKey: removeKey.checked,
+        });
+        show(config);
+        status.textContent = I18n.t('Configuration IA enregistrée');
+      });
+    });
+    form.append(fields, status, error, save);
+    setBusy(false);
+    return { element: form, setBusy, load: async () => show(await window.api.promptAssistantSettings()) };
+  }
+
+  function promptAssistantSection() {
+    const sec = section('IA des prompts');
+    sec.id = 'set-prompt-ai';
+    sec.appendChild(el('p', 'set-help', I18n.t('Configurez l’assistant du prompt injecteur. Ces réglages sont communs à tous les workspaces ; la clé reste dans le stockage sécurisé, hors de settings.json.')));
+    const form = promptAssistantForm();
+    sec.appendChild(form.element);
+    let started = false;
+    sec.load = () => {
+      if (started) return;
+      started = true;
+      void form.load().catch((failure) => {
+        sec.querySelector('.prompt-error').textContent = I18n.t(failure.message);
+        started = false;
+      });
+    };
+    return sec;
+  }
+
   function build() {
     overlay = el('div', 'overlay settings-overlay');
     const card = el('div', 'settings-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-label', I18n.t('Paramètres'));
     const head = el('div', 'settings-head', '<h2>Paramètres</h2>');
     const reset = el('button', 'tb-btn', 'Réinitialiser');
     const close = el('button', 'icon-btn', '✕');
@@ -464,6 +639,60 @@
     head.append(reset, close);
 
     const body = el('div', 'settings-body');
+    const tabs = el('div', 'settings-tabs');
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', I18n.t('Catégories des paramètres'));
+    const categories = [
+      ['appearance', 'Apparence', [0], '🎨'],
+      ['terminal', 'Terminal', [1], '💻'],
+      ['editor', 'Éditeur de code', [2], '📝'],
+      ['robots', 'Robots', [3, 4, 5], '🤖'],
+      ['explorer', 'Explorateur de fichiers', [6, 7], '📁'],
+      ['remote', 'Accès à distance', [8, 9], '📡'],
+      ['templates', 'Modèles', [10], '🧩'],
+      ['shortcuts', 'Raccourcis clavier', [11], '⌨️'],
+      ['prompt-ai', 'IA des prompts', [12], '✨'],
+    ];
+    const tabButtons = [];
+    selectPanel = (id, focus = false) => {
+      const category = categories.find(([key]) => key === id) || categories[0];
+      selectedTab = category[0];
+      [...body.children].forEach((sec, index) => { sec.hidden = index !== categories.indexOf(category); });
+      tabButtons.forEach((button) => {
+        const active = button.dataset.tab === selectedTab;
+        button.setAttribute('aria-selected', String(active));
+        button.tabIndex = active ? 0 : -1;
+        if (active && focus) button.focus();
+      });
+      body.scrollTop = 0;
+      if (selectedTab === 'prompt-ai') body.querySelector('#set-prompt-ai')?.load();
+    };
+    categories.forEach(([id, label, indexes, icon], index) => {
+      const button = el('button', 'settings-tab');
+      const symbol = el('span', 'settings-tab-icon');
+      symbol.textContent = icon;
+      symbol.setAttribute('aria-hidden', 'true');
+      symbol.setAttribute('data-no-i18n', '');
+      const caption = el('span', 'settings-tab-label');
+      caption.textContent = label;
+      button.append(symbol, caption);
+      button.dataset.tab = id;
+      button.id = `settings-tab-${id}`;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', `settings-panel-${id}`);
+      button.addEventListener('click', () => selectPanel(id));
+      button.addEventListener('keydown', (e) => {
+        let next;
+        if (e.key === 'ArrowRight') next = (index + 1) % categories.length;
+        else if (e.key === 'ArrowLeft') next = (index + categories.length - 1) % categories.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = categories.length - 1;
+        else return;
+        e.preventDefault();
+        selectPanel(categories[next][0], true);
+      });
+      tabButtons.push(button); tabs.appendChild(button);
+    });
     const fill = () => {
       body.innerHTML = '';
       body.append(
@@ -527,27 +756,55 @@
       open.addEventListener('click', () => { closePanel(); window.TabModels?.openManager(); });
       tm.appendChild(open);
       body.appendChild(tm);
+      body.appendChild(shortcutsSection());
+      body.appendChild(promptAssistantSection());
+      const sections = [...body.children];
+      body.replaceChildren();
+      categories.forEach(([id, , indexes]) => {
+        const panel = el('div', 'settings-panel');
+        panel.id = `settings-panel-${id}`;
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', `settings-tab-${id}`);
+        indexes.forEach((index) => panel.appendChild(sections[index]));
+        body.appendChild(panel);
+      });
+      selectPanel(selectedTab);
     };
     fill();
     // Réinitialiser ne touche pas aux modèles d'espace
     reset.addEventListener('click', () => { const { templates, tabModels, zoneModels, screenModels, explorerFavorites, settingsVersion, ...rest } = DEFAULTS; set({ ...rest }); fill(); });
     close.addEventListener('click', closePanel);
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closePanel(); });
-    card.append(head, body);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = [...card.querySelectorAll('button, input, select, textarea, [tabindex="0"]')]
+        .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+      const first = focusable[0], last = focusable.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    });
+    card.append(head, tabs, body);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
   }
 
   function openPanel(sectionId) {
-    if (!overlay) build();
+    if (!overlay) { previousFocus = document.activeElement; build(); }
     if (sectionId) {
       const target = overlay.querySelector(`#set-${sectionId}`);
+      const panel = target?.closest('.settings-panel');
+      if (panel) selectPanel(panel.id.replace('settings-panel-', ''));
       if (target) requestAnimationFrame(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
+    overlay.querySelector('[aria-selected="true"]')?.focus();
   }
   function closePanel() {
     overlay?.remove();
     overlay = null;
+    selectPanel = null;
+    refreshShortcuts = null;
+    if (previousFocus?.isConnected) previousFocus.focus();
+    previousFocus = null;
   }
 
   window.Settings = {
@@ -560,5 +817,12 @@
     setShells: (s) => { shells = s; },
     open: openPanel,
     close: closePanel,
+    promptAssistantForm,
   };
+  window.api.onShortcutsChanged?.((shortcuts) => {
+    if (JSON.stringify(data.shortcuts) === JSON.stringify(shortcuts)) return;
+    data.shortcuts = shortcuts;
+    for (const cb of listeners) cb(['shortcuts'], data);
+    refreshShortcuts?.();
+  });
 })();

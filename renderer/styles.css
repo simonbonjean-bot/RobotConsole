@@ -118,10 +118,10 @@ html[data-platform="darwin"] #topbar { padding-left: 90px; padding-right: 14px; 
 /* ---------- Bulle de dialogue du robot ---------- */
 .bubble {
   position: fixed; z-index: 50; background: #f5f7fb; color: #141a26; font-size: 12px; font-weight: 550;
-  padding: 5px 9px; border-radius: 9px; white-space: nowrap; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  padding: 5px 9px; border-radius: 9px; white-space: nowrap; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.35);
   animation: pop .18s ease-out;
 }
-.bubble::before { content: ""; position: absolute; left: 12px; top: -5px; border: 5px solid transparent; border-top: 0; border-bottom-color: #f5f7fb; }
+.bubble::before { content: ""; position: absolute; left: var(--bubble-tail-left, 12px); top: -5px; border: 5px solid transparent; border-top: 0; border-bottom-color: #f5f7fb; }
 .bubble.fade { opacity: 0; transition: opacity .3s; }
 .bubble-name { display: block; font-size: 11px; opacity: .7; margin-bottom: 2px; }
 .speaking > .space-head > .robot,
@@ -200,6 +200,21 @@ body.no-robot-anim .robot *, body.no-robot-anim .robot svg { animation: none !im
 .settings-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 80px); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 .settings-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 12px 22px; border-bottom: 1px solid var(--border); }
 .settings-head h2 { margin: 0; font-size: 17px; flex: 1; }
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.settings-tab { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 7px; padding: 6px 9px; font: inherit; cursor: pointer; }
+.settings-tab-icon { flex-shrink: 0; font-size: 16px; line-height: 1; }
+.settings-tab[aria-selected="true"] { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
+.settings-tab:focus-visible, .shortcut-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-body { min-height: 0; }
+.settings-panel[hidden] { display: none; }
+.shortcut-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.shortcut-edit { min-width: 180px; }
+.shortcut-edit[data-recording] { border-color: var(--accent); color: var(--accent); }
+.shortcut-status { position: sticky; bottom: 0; background: var(--panel); padding: 8px 0; }
+@media (max-width: 650px) {
+  .shortcut-row { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .shortcut-controls { justify-content: flex-start; }
+}
 .settings-body { overflow-y: auto; padding: 6px 22px 22px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .set-section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 18px 0 8px; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); cursor: default; }
@@ -422,6 +437,17 @@ body.dragging-space .space { pointer-events: auto; }
 .speech-entry { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .speech-entry small { opacity: .65; }
 .speech-entry div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.speech-entry .speech-tab { display: inline-flex; align-items: center; gap: 4px; width: auto; max-width: 100%; padding: 1px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--accent); cursor: pointer; font: inherit; vertical-align: middle; }
+.speech-tab > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.speech-tab:not(:disabled):hover { background: var(--hover); text-decoration: underline; }
+.speech-tab:disabled { color: var(--muted); cursor: default; }
 .skill-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .rp-voice-select { min-width: 0; max-width: 100%; }
-.bubble { max-width: min(460px, calc(100vw - 16px)); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+.bubble { max-width: min(460px, calc(100vw - 16px)); white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+.bubble-text { display: block; max-height: max(24px, calc(40vh - 32px)); overflow: auto; }
+.settings-panel .prompt-assistant-fields { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+.settings-panel .prompt-assistant-field { display: flex; flex-direction: column; gap: 5px; }
+.settings-panel .prompt-assistant-config .set-input { width: 100%; min-width: 0; }
+.settings-panel .prompt-assistant-config textarea { resize: vertical; min-height: 100px; }
+.settings-panel .prompt-assistant-config input[type="checkbox"] { width: auto; align-self: flex-start; }
+.settings-panel .prompt-assistant-config-status { white-space: pre-wrap; }

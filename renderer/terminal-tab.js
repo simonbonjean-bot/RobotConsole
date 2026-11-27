@@ -26,6 +26,7 @@
     mount(tab, spec) {
       tab.shellId = spec.shellId;
       tab.cwd = spec.cwd || null;
+      tab.promptDraftId = spec.promptDraftId || null;
       tab.attachOnly = !!spec.attachOnly; // simple vue sur une session (ex. un service) : ne pas la tuer à la fermeture
       tab.exited = false;
       // Commandes lancées au démarrage (modèles d'espace)
@@ -43,6 +44,7 @@
 
       tab.pane.classList.add('term-pane');
       tab.pane.addEventListener('contextmenu', async (e) => {
+        if (e.target.closest?.('.prompt-overlay')) return;
         e.preventDefault();
         const mode = Settings.data.rightClick;
         if (mode === 'none') return;
@@ -96,13 +98,14 @@
     },
 
     activate(tab) { this.resize(tab); },
-    focus(tab) { tab.term.focus(); },
+    focus(tab) { if (!window.PromptEditor?.focusFor?.(tab)) tab.term.focus(); },
     resize(tab) {
       if (!tab.pane.offsetParent) return;
       try { tab.fit.fit(); } catch {}
     },
 
     dispose(tab) {
+      window.PromptEditor?.closeFor(tab);
       if (tab.ptyId) { tabsByPty.delete(tab.ptyId); if (tab.attachOnly) api.detachPty(tab.ptyId); else api.kill(tab.ptyId); }
       tab.disposed = true;
       clearTimeout(tab.reconnectTimer);
@@ -111,7 +114,7 @@
     },
 
     serialize(tab) {
-      return { shellId: tab.shellId, cwd: tab.cwd || undefined, sessionId: tab.ptyId || undefined, commands: tab.init.length ? tab.init : undefined, attachOnly: tab.attachOnly || undefined };
+      return { shellId: tab.shellId, cwd: tab.cwd || undefined, sessionId: tab.ptyId || undefined, commands: tab.init.length ? tab.init : undefined, attachOnly: tab.attachOnly || undefined, promptDraftId: tab.promptDraftId || tab.spec?.promptDraftId || undefined };
     },
 
     applySettings(tab, changed) {
@@ -160,6 +163,20 @@
       tab.term.paste(text);
       tab.term.focus();
     },
+    async inject(tab, text, submit, dialogOptions = {}) {
+      if (dialogOptions.signal?.aborted) return false;
+      if (tab.disposed || tab.exited || !tab.ptyId) throw new Error('Le terminal est fermé ou déconnecté');
+      const bracketed = tab.term.modes.bracketedPasteMode;
+      if (!bracketed && text.includes('\n')) {
+        if (!(await UI.confirm('Ce terminal ne protège pas le collage multiligne',
+          'Les retours à la ligne peuvent exécuter des commandes immédiatement. Vérifiez que votre CLI est prêt à recevoir le texte.',
+          { ...dialogOptions, ok: submit ? 'Envoyer quand même' : 'Insérer quand même', danger: true }))) return false;
+      }
+      if (dialogOptions.signal?.aborted) return false;
+      await api.injectPrompt(tab.ptyId, text, { bracketed, submit });
+      tab.space.lastInput = Date.now();
+      return true;
+    },
   };
 
   // ---------- Rendu GPU (WebGL) ----------
@@ -194,6 +211,7 @@
     return [
       { label: 'Copier', icon: '⧉', hint: 'Ctrl+C', disabled: !sel, action: () => Terminal_.copy(tab) },
       { label: 'Coller', icon: '📋', hint: 'Ctrl+V', action: () => Terminal_.paste(tab) },
+      { label: 'Rédiger un prompt…', icon: '✎', hint: CAI.shortcutHint('prompt'), action: () => PromptEditor.open(tab) },
       { label: 'Tout sélectionner', icon: '▭', action: () => term.selectAll() },
       { label: 'Copier tout le contenu', icon: '⧉', action: () => { term.selectAll(); api.writeClipboard(term.getSelection()); term.clearSelection(); UI.toast('Contenu du terminal copié', { ms: 1500 }); } },
       sel && looksUrl && { label: 'Ouvrir le lien', icon: '↗', action: () => window.open(selText.trim()) },

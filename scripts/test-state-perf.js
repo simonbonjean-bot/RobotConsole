@@ -169,11 +169,18 @@ if (process.versions.electron) {
       }));
       const env = { ...process.env, ROBOTCONSOLE_USERDATA: root, ROBOTCONSOLE_NO_SPLASH: '1' };
       delete env.ELECTRON_RUN_AS_NODE;
-      const result = require('node:child_process').spawnSync(require('electron'), [__filename], {
-        env, encoding: 'utf8', timeout: 55000,
-      });
-      assert.equal(result.error, undefined, result.error?.message);
-      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      // Electron helpers can retain inherited pipes on Windows after the app exits.
+      const stdoutFile = path.join(root, 'electron-stdout.log'), stderrFile = path.join(root, 'electron-stderr.log');
+      const stdout = fs.openSync(stdoutFile, 'w'), stderr = fs.openSync(stderrFile, 'w');
+      let result;
+      try {
+        result = require('node:child_process').spawnSync(require('electron'), [__filename], {
+          env, stdio: ['ignore', stdout, stderr], timeout: 55000,
+        });
+      } finally { fs.closeSync(stdout); fs.closeSync(stderr); }
+      const output = `${fs.readFileSync(stdoutFile, 'utf8')}\n${fs.readFileSync(stderrFile, 'utf8')}`;
+      assert.equal(result.error, undefined, `${result.error?.message}\n${output}`);
+      assert.equal(result.status, 0, output);
       const main = JSON.parse(fs.readFileSync(path.join(root, 'state.json'), 'utf8'));
       assert.equal(main.spaces[0].name, 'App final main');
       const secondaryFile = fs.readdirSync(root).find((name) => /^state-w.*\.json$/.test(name));

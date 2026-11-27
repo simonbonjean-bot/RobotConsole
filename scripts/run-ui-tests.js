@@ -13,6 +13,8 @@ const tests = [
   'test-tab-icons.js',
   'test-screen-removal.js',
   'test-file-preview.js',
+  'test-command-palette-ui.js',
+  'test-shortcuts-ui.js',
 ];
 const selected = new Set(process.argv.slice(2));
 for (const name of selected) {

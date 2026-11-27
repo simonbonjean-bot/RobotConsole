@@ -1,7 +1,7 @@
 // RobotConsole — processus principal Electron
 // Fenêtres (une par workspace), service des terminaux, workspaces, tests, Docker, services.
 const I18n = require('./main/i18n');
-const { app, BrowserWindow, ipcMain, clipboard, shell, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, shell, dialog, screen, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { StateStore } = require('./main/state-store');
@@ -23,6 +23,11 @@ const Relay = require('./main/relay');
 const { Speech } = require('./main/speech');
 const { SpeechVoice } = require('./main/speech-voice');
 const RobotSkill = require('./scripts/install-robot-skill');
+const { PromptStore } = require('./main/prompt-store');
+const { PromptAssistant } = require('./main/prompt-assistant');
+const PromptText = require('./shared/prompt');
+const Shortcuts = require('./shared/shortcuts');
+const { createFileSearch } = require('./main/file-search');
 
 const APP_NAME = 'RobotConsole';
 const APP_ID = 'RobotConsole.App';
@@ -49,6 +54,7 @@ const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8'))
 const writeJson = (p, v) => { try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(v, null, 2)); } catch {} };
 const stateStore = new StateStore();
 const dataFile = (n) => path.join(app.getPath('userData'), n);
+let shortcutOverrides = readJson(dataFile('settings.json'), {})?.shortcuts || {};
 
 // ---------- Shells disponibles ----------
 function detectShells() {
@@ -76,7 +82,32 @@ const SHELLS = detectShells();
 // Une fenêtre « principale » par workspace (winId = 'main'), plus des fenêtres secondaires
 // (espaces sortis de la fenêtre principale), chacune avec son propre fichier d'état.
 const windows = new Map(); // webContents.id -> { win, ws, winId }
+const spellchecks = new WeakMap();
 let quitting = false;
+
+function spellingStatus(session) {
+  return { native: process.platform === 'darwin', languages: [...(spellchecks.get(session) || [])].map(([language, state]) => ({ language, state })) };
+}
+
+function configureSpelling(session) {
+  if (spellchecks.has(session)) return;
+  const languages = process.platform === 'darwin' ? [] : ['fr', 'en-US'].filter((language) => session.availableSpellCheckerLanguages.includes(language));
+  const states = new Map(languages.map((language) => [language, 'loading']));
+  spellchecks.set(session, states);
+  const update = (language, state) => {
+    if (!states.has(language)) return;
+    states.set(language, state);
+    if (state === 'failed') console.warn('[spellcheck] Dictionnaire indisponible : ' + language);
+    for (const { win } of windows.values()) {
+      if (!win.isDestroyed() && win.webContents.session === session) win.webContents.send('prompts:spellingChanged', spellingStatus(session));
+    }
+  };
+  session.on('spellcheck-dictionary-download-begin', (_event, language) => update(language, 'loading'));
+  session.on('spellcheck-dictionary-download-failure', (_event, language) => update(language, 'failed'));
+  session.on('spellcheck-dictionary-initialized', (_event, language) => update(language, 'ready'));
+  session.setSpellCheckerEnabled(true);
+  if (process.platform !== 'darwin') session.setSpellCheckerLanguages(languages);
+}
 
 function windowsFile() { return dataFile('windows.json'); }
 function rememberWindows() {
@@ -145,6 +176,18 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     Object.assign(prefs, { nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, webSecurity: true });
   });
   win.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return;
+      const action = Shortcuts.match({
+        code: input.code, ctrlKey: input.control, metaKey: input.meta, shiftKey: input.shift, altKey: input.alt,
+      }, shortcutOverrides, process.platform === 'darwin');
+      if (!action) return;
+      event.preventDefault();
+      if (!input.isAutoRepeat && !win.isDestroyed()) {
+        win.webContents.focus();
+        win.webContents.send('shortcuts:run', action);
+      }
+    });
     guest.setWindowOpenHandler(() => ({ action: 'deny' }));
     const guard = (event, url) => { if (url !== 'about:blank' && !/^https?:\/\//i.test(url)) event.preventDefault(); };
     guest.on('will-navigate', guard);
@@ -160,11 +203,31 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
   });
+  const session = win.webContents.session;
+  configureSpelling(session);
+  win.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable || !params.spellcheckEnabled) return;
+    const suggestions = params.dictionarySuggestions.map((word) => ({
+      label: word, click: () => win.webContents.replaceMisspelling(word),
+    }));
+    if (params.misspelledWord) {
+      if (!suggestions.length) suggestions.push({ label: I18n.t('Aucune suggestion'), enabled: false });
+      suggestions.push({
+        label: I18n.t('Ajouter au dictionnaire'),
+        click: () => {
+          if (!session.addWordToSpellCheckerDictionary(params.misspelledWord)) {
+            dialog.showErrorBox(I18n.t('Correcteur orthographique'), I18n.t('Ajout au dictionnaire impossible'));
+          }
+        },
+      }, { type: 'separator' });
+    }
+    Menu.buildFromTemplate([...suggestions, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' }, { role: 'selectAll' }]).popup({ window: win });
+  });
 
   const wcId = win.webContents.id;
-  win.webContents.on('render-process-gone', () => unsubscribeAll(wcId));
+  win.webContents.on('render-process-gone', () => { unsubscribeAll(wcId); fileSearch.disposeSender(wcId); });
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) unsubscribeAll(wcId);
+    if (isMainFrame && !isInPlace) { unsubscribeAll(wcId); fileSearch.disposeSender(wcId); }
   });
   win.on('close', (ev) => {
     // Fenêtre secondaire fermée par l'utilisateur : on lui demande quoi faire de ses espaces
@@ -177,7 +240,7 @@ function createWindow({ ws = null, winId = 'main', bounds, maximized, initialSta
     if (!quitting && windows.size > 1) { entry.omitFromSession = true; rememberWindows(); }
     else rememberWindows();
   });
-  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); speechVoice.recheck(); });
+  win.on('closed', () => { windows.delete(wcId); unsubscribeAll(wcId); fileSearch.disposeSender(wcId); remote.dropWindow(wcId); speech.dropWindow(wcId); speechVoice.recheck(); });
   win.on('resized', rememberWindows);
   win.on('moved', rememberWindows);
   rememberWindows();
@@ -191,16 +254,28 @@ const ptyHost = new PtyClient(app.getPath('userData'));
 let speechSeq = 0;
 const speechPending = new Map();
 const speechVoice = new SpeechVoice();
-const speech = new Speech({
-  userData,
-  deliver: (target, text) => new Promise((resolve, reject) => {
+function robotRequest(target, channel, ...args) {
+  return new Promise((resolve, reject) => {
     const wc = windows.get(target.wcId)?.win.webContents;
     if (!wc || wc.isDestroyed()) { reject(new Error('Fenêtre du robot fermée.')); return; }
     const id = ++speechSeq;
     const timer = setTimeout(() => { speechPending.delete(id); reject(new Error('Le robot ne répond pas.')); }, 7000);
     speechPending.set(id, { wcId: target.wcId, timer, resolve, reject });
-    wc.send('speech:say', id, target.rid, text);
-  }),
+    wc.send(channel, id, target.rid, ...args);
+  });
+}
+const speech = new Speech({
+  userData,
+  deliver: (target, text, session) => robotRequest(target, 'speech:say', text, session),
+  openFile: (target, file) => {
+    const win = windows.get(target.wcId)?.win;
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+    return robotRequest(target, 'robot:openFile', file);
+  },
 });
 ipcMain.on('speech:publish', (e, robots) => { speech.publish(e.sender.id, robots); speechVoice.recheck(); });
 ipcMain.handle('speech:record', async (e, entry) => {
@@ -414,6 +489,13 @@ ipcMain.on('pty:gc', async (e, scope, keep) => {
   ptyHost.send({ t: 'gc', scope: scope || '', keep: [...all] }).catch(() => {});
 });
 ipcMain.on('pty:write', (_e, id, data) => { ptyHost.send({ t: 'write', id, data }).catch(() => {}); });
+ipcMain.handle('pty:injectPrompt', async (e, id, text, options) => {
+  if (!owners.get(id)?.has(e.sender)) throw new Error('Ce terminal n’est plus lié à cette fenêtre');
+  const data = PromptText.wire(text, options);
+  const session = (await ptyHost.sessions()).find((entry) => entry.id === id);
+  if (!session?.alive) throw new Error('Le terminal est fermé ou déconnecté');
+  await ptyHost.send({ t: 'write', id, data });
+});
 ipcMain.on('pty:resize', (_e, id, cols, rows) => { ptyHost.send({ t: 'resize', id, cols, rows }).catch(() => {}); });
 ipcMain.on('pty:kill', (_e, id) => {
   for (const wc of owners.get(id) || []) terminalFlow.detach(wc.id, id);
@@ -466,6 +548,13 @@ ipcMain.on('settings:save', (_e, s) => {
   // Les réglages d'accès à distance (jeton…) sont gérés ici, pas par la fenêtre
   const cur = readJson(dataFile('settings.json'), {}) || {};
   writeJson(dataFile('settings.json'), { ...s, remote: cur.remote });
+  const nextShortcuts = s.shortcuts || {};
+  if (JSON.stringify(shortcutOverrides) !== JSON.stringify(nextShortcuts)) {
+    shortcutOverrides = nextShortcuts;
+    for (const { win } of windows.values()) {
+      if (!win.isDestroyed()) win.webContents.send('shortcuts:changed', shortcutOverrides);
+    }
+  }
 });
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.on('app:titlebar', (e, color, symbolColor) => {
@@ -495,6 +584,19 @@ ipcMain.handle('win:focus', (_e, wcId) => {
   target.win.focus();
 });
 ipcMain.on('ws:open', (_e, root) => { if (root) createWindow({ ws: root }); });
+ipcMain.on('ws:navigate', (event, direction) => {
+  if (direction !== -1 && direction !== 1) return;
+  const current = ctxOf(event).ws;
+  const roots = [...new Set(recent().concat(current || []))].sort((a, b) =>
+    Workspace.load(a).name.localeCompare(Workspace.load(b).name) || a.localeCompare(b));
+  if (!roots.length || (roots.length === 1 && sameWs(roots[0], current))) return;
+  const index = roots.findIndex((root) => sameWs(root, current));
+  const target = index < 0 ? (direction > 0 ? 0 : roots.length - 1) : (index + direction + roots.length) % roots.length;
+  const root = roots[target];
+  const existing = findWindow(root);
+  if (existing?.win.isMinimized()) existing.win.restore();
+  createWindow({ ws: root });
+});
 ipcMain.on('win:new', () => createWindow({ ws: null }));
 // ---------- Fenêtres secondaires : sortir, déplacer, renvoyer des espaces ----------
 const newWinId = () => 'w' + Math.random().toString(36).slice(2, 8);
@@ -588,6 +690,31 @@ const subscriptions = new Subscriptions({ userData });
 ipcMain.handle('subscriptions:read', (_e, force) => subscriptions.read(force === true));
 ipcMain.handle('subscriptions:claudeInstall', () => subscriptions.installClaude());
 
+// Les prompts restent dans les données locales, jamais dans un dépôt de workspace.
+const prompts = new PromptStore(dataFile('prompts.json'));
+const promptAssistant = new PromptAssistant({ file: dataFile('prompt-assistant.json'), safeStorage });
+ipcMain.handle('prompts:assistantSettings', () => promptAssistant.settings());
+ipcMain.handle('prompts:saveAssistantSettings', (_e, value) => promptAssistant.save(value));
+ipcMain.handle('prompts:improve', (_e, text) => promptAssistant.improve(text));
+ipcMain.handle('prompts:saveDraft', (e, id, draft) => prompts.saveDraft(id, draft, ctxOf(e).ws));
+ipcMain.on('prompts:saveDraftFinal', async (e, id, draft) => {
+  try { await prompts.saveDraft(id, draft, ctxOf(e).ws); e.returnValue = true; }
+  catch (error) { console.error('[prompt draft]', error); e.returnValue = false; }
+});
+ipcMain.handle('prompts:spelling', (e) => spellingStatus(e.sender.session));
+ipcMain.handle('prompts:list', () => prompts.list());
+ipcMain.handle('prompts:readDocument', (_e, file) => fsGit.readPromptDocument(file));
+ipcMain.handle('prompts:add', (e, kind, draft) => prompts.add(kind, draft, ctxOf(e).ws));
+ipcMain.handle('prompts:remove', (_e, kind, id) => prompts.remove(kind, id));
+ipcMain.handle('prompts:clearHistory', (e, all) => prompts.clearHistory(ctxOf(e).ws, all === true));
+ipcMain.handle('prompts:pickDocuments', async (e, start) => {
+  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), {
+    title: I18n.t('Référencer des documents'), defaultPath: start || ctxOf(e).ws || os.homedir(),
+    properties: ['openFile', 'multiSelections'],
+  });
+  return result.canceled ? [] : result.filePaths;
+});
+
 // ---------- Services du workspace ----------
 const services = new Services({ ptyHost, shells: SHELLS });
 ipcMain.handle('svc:open', (e, root) => services.open(root, e.sender));
@@ -638,6 +765,14 @@ ipcMain.handle('prisma:diagramSave', (_e, root, id, data) => Prisma.diagramSave(
 ipcMain.handle('prisma:diagramSaveImage', (_e, root, dataUrl) => Prisma.diagramSaveImage(root, dataUrl));
 
 fsGit.register();
+const fileSearch = createFileSearch({
+  getRoots: (senderId) => {
+    if (!windows.has(senderId)) return [];
+    return [...new Set([...windows.values()].filter((entry) => !entry.closed).map((entry) => entry.ws).concat(recent()).filter(Boolean))];
+  },
+});
+ipcMain.handle('palette:searchFiles', (event, options) => fileSearch.search(event.sender.id, options));
+ipcMain.on('palette:cancelSearch', (event, requestId) => fileSearch.cancel(event.sender.id, requestId));
 
 // ---------- Démarrage ----------
 const single = app.requestSingleInstanceLock();

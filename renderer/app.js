@@ -167,12 +167,15 @@
     })));
   }
 
-  function say(space, text, ms = 2600, source = 'app') {
+  function say(space, text, ms = 2600, source = 'app', tab = space?.activeTab) {
     if (!space) return Promise.reject(new Error('Robot introuvable.'));
     publishSpeech();
     const spoken = source === 'app' ? I18n.t(text) : text;
     ms = Math.max(ms, Math.min(20000, Math.max(6000, spoken.length * 65)));
-    const recorded = api.speechRecord({ rid: space.rid, name: space.name, text: spoken, source, duration: ms }).then((entry) => {
+    const recorded = api.speechRecord({
+      rid: space.rid, name: space.name, text: spoken, source, duration: ms,
+      tab: tab ? { id: tab.id, session: tab.ptyId, title: tab.title, icon: tab.icon || tab.model?.icon || KIND_TEXT[tab.kind] || '•' } : undefined,
+    }).then((entry) => {
       window.dispatchEvent(new CustomEvent('robot:speech-recorded', { detail: entry }));
       return entry;
     }).catch((error) => {
@@ -191,26 +194,35 @@
       const b = h('div', `bubble bubble-${place}`);
       const name = h('strong', 'bubble-name');
       name.textContent = space.name;
-      b.append(name, document.createTextNode(spoken));
+      const message = h('span', 'bubble-text');
+      message.textContent = spoken;
+      b.append(name, message);
       b.setAttribute('data-no-i18n', '');
+      b.title = spoken;
+      b.addEventListener('click', (event) => { event.stopPropagation(); space.clearSpeech?.(); });
       document.body.appendChild(b);
       return b;
     }) : [];
     const position = () => {
-      const anchors = [space.robotEl, space.crewFace.isConnected ? space.crewFace : space.crewMini];
+      const anchors = [tab?.el || space.tabsEl, space.crewFace.isConnected ? space.crewFace : space.crewMini];
       [1, 0].forEach((i) => {
         const b = bubbles[i];
         if (!b) return;
         const el = anchors[i];
         const r = el?.getBoundingClientRect();
-        b.hidden = !el?.isConnected || !el.getClientRects().length || r.bottom <= 0 || r.right <= 0 || r.left >= innerWidth;
+        const strip = (i === 0 ? space.tabsEl : el?.closest('#crew'))?.getBoundingClientRect();
+        b.hidden = !el?.isConnected || !el.getClientRects().length || r.bottom <= 0 || r.top >= innerHeight ||
+          r.right <= 0 || r.left >= innerWidth || (strip && (r.right <= strip.left || r.left >= strip.right));
         if (b.hidden) return;
-        b.style.left = `${Math.max(4, Math.min(r.left + 2, innerWidth - b.offsetWidth - 8))}px`;
-        let top = r.bottom + 8;
-        const other = i === 0 && !bubbles[1].hidden ? bubbles[1].getBoundingClientRect() : null;
-        const left = parseFloat(b.style.left);
-        if (other && left < other.right && left + b.offsetWidth > other.left) top = Math.max(top, other.bottom + 10);
+        const left = Math.max(4, Math.min(r.left + 2, innerWidth - b.offsetWidth - 8));
+        let top = (i === 1 && strip ? Math.max(r.bottom, strip.bottom) : r.bottom) + 8;
+        const other = i === 0 && !bubbles[1].hidden ? bubbles[1] : null;
+        if (other && left < parseFloat(other.style.left) + other.offsetWidth && left + b.offsetWidth > parseFloat(other.style.left)) {
+          top = Math.max(top, parseFloat(other.style.top) + other.offsetHeight + 10);
+        }
+        b.style.left = `${left}px`;
         b.style.top = `${Math.max(4, Math.min(top, innerHeight - b.offsetHeight - 8))}px`;
+        b.style.setProperty('--bubble-tail-left', `${Math.max(8, Math.min(r.left + r.width / 2 - left - 5, b.offsetWidth - 18))}px`);
       });
     };
     position();
@@ -229,21 +241,44 @@
     return recorded;
   }
 
-  api.onSpeech(async (id, rid, text) => {
+  api.onSpeech(async (id, rid, text, session) => {
     try {
       const space = spaces.find((sp) => sp.rid === rid);
       if (!space) throw new Error('Robot déplacé ou fermé : réessayez la commande.');
-      await say(space, text, Math.min(15000, Math.max(3500, text.length * 65)), 'cli');
+      const tab = session ? space.tabs.find((t) => t.ptyId === session) : space.activeTab;
+      await say(space, text, Math.min(15000, Math.max(3500, text.length * 65)), 'cli', tab);
       api.speechResult(id);
     } catch (error) { api.speechResult(id, error.message); }
   });
 
-  function speechHistoryContent(entries, deletable = false) {
-    return entries.length ? entries.slice().reverse().map((entry) =>
-      `<div class="speech-entry">${deletable ? `<button class="tb-btn speech-delete" data-message-id="${esc(entry.id)}" title="${esc(I18n.t('Supprimer ce message'))}" aria-label="${esc(I18n.t('Supprimer ce message'))}">×</button>` : ''}<small>${esc(new Date(entry.at).toLocaleString())} · ${esc(entry.source)}</small><div data-no-i18n>${esc(entry.text)}</div></div>`).join('') : esc(I18n.t('Aucun message pour ce robot.'));
+  api.onRobotOpenFile((id, rid, file) => {
+    try {
+      const space = spaces.find((sp) => sp.rid === rid);
+      if (!space) throw new Error('Robot déplacé ou fermé : réessayez la commande.');
+      revealTab(openFile(space, file));
+      api.speechResult(id);
+    } catch (error) { api.speechResult(id, error.message); }
+  });
+
+  function speechTab(target) {
+    if (!target) return null;
+    for (const space of spaces) {
+      const tab = space.tabs.find((t) => target.session ? t.ptyId === target.session : t.id === target.id);
+      if (tab) return tab;
+    }
+    return null;
   }
 
-  function paginatedSpeechHistory(rid, list, deletable = false, changed = () => {}) {
+  function speechHistoryContent(entries, deletable = false) {
+    return entries.length ? entries.slice().reverse().map((entry) => {
+      const tab = entry.tab;
+      const available = tab && speechTab(tab);
+      const link = tab ? ` <button type="button" class="speech-tab" data-tab-id="${esc(tab.id)}" data-session="${esc(tab.session || '')}" data-no-i18n${available ? '' : ` disabled title="${esc(I18n.t('{0} (indisponible)', tab.title))}"`}>${TabModels.iconHtml(tab.icon)} <span>${esc(tab.title)}</span></button>` : '';
+      return `<div class="speech-entry">${deletable ? `<button class="tb-btn speech-delete" data-message-id="${esc(entry.id)}" title="${esc(I18n.t('Supprimer ce message'))}" aria-label="${esc(I18n.t('Supprimer ce message'))}">×</button>` : ''}<small>${esc(new Date(entry.at).toLocaleString())} · ${esc(entry.source)}${link}</small><div data-no-i18n>${esc(entry.text)}</div></div>`;
+    }).join('') : esc(I18n.t('Aucun message pour ce robot.'));
+  }
+
+  function paginatedSpeechHistory(rid, list, deletable = false, changed = () => {}, selected = () => {}) {
     const controls = h('div', 'speech-pagination');
     const older = h('button', 'tb-btn speech-older', esc(I18n.t('Messages plus anciens')));
     const refresh = h('button', 'tb-btn speech-refresh', esc(I18n.t('Actualiser les messages')));
@@ -287,6 +322,18 @@
         }
       }
     };
+    list.addEventListener('click', (event) => {
+      const button = event.target.closest('.speech-tab');
+      if (!button || button.disabled) return;
+      const tab = speechTab({ id: button.dataset.tabId, session: button.dataset.session });
+      if (!tab) {
+        button.disabled = true;
+        UI.toast(I18n.t('{0} (indisponible)', button.textContent.trim()), { kind: 'error' });
+        return;
+      }
+      selected();
+      revealTab(tab);
+    });
     older.addEventListener('click', () => load(retryReset));
     refresh.addEventListener('click', () => load());
     return load;
@@ -294,9 +341,10 @@
 
   async function speechHistory(space) {
     const id = `speech-history-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const dialog = UI.dialog({ title: I18n.t('Historique des paroles'), message: `<div id="${id}" class="speech-history"></div>`, ok: 'Fermer' });
+    const controller = new AbortController();
+    const dialog = UI.dialog({ title: I18n.t('Historique des paroles'), message: `<div id="${id}" class="speech-history"></div>`, ok: 'Fermer', signal: controller.signal });
     const list = document.getElementById(id);
-    paginatedSpeechHistory(space.rid, list)();
+    paginatedSpeechHistory(space.rid, list, false, undefined, () => controller.abort())();
     await dialog;
   }
 
@@ -571,7 +619,7 @@
     tabsWrap.append(scrollL, tabsEl, scrollR, tabsList);
     const addWrap = h('div', 'add-tab');
     const addBtn = h('button', 'icon-btn', '＋');
-    addBtn.title = 'Nouveau terminal (Ctrl+Maj+T)';
+    shortcutTitle(addBtn, 'Nouveau terminal', 'tabNew');
     const addMenuBtn = h('button', 'icon-btn', '▼');
     addMenuBtn.title = 'Ajouter un onglet : terminal, explorateur, tests, Docker, services, Graphify…';
     const modelsBtn = h('button', 'icon-btn space-models-btn', '🧩');
@@ -587,13 +635,23 @@
       ], modelsBtn);
     });
     addWrap.append(addBtn, addMenuBtn, modelsBtn);
+    const promptBtn = h('button', 'icon-btn space-prompt-btn', '✎');
+    shortcutTitle(promptBtn, 'Rédiger un prompt', 'prompt');
+    promptBtn.setAttribute('aria-label', 'Rédiger un prompt');
+    promptBtn.disabled = true;
+    promptBtn.addEventListener('click', () => {
+      const tab = space.activeTab;
+      if (tab?.kind !== 'terminal') return;
+      mountTab(tab);
+      PromptEditor.open(tab);
+    });
     const parkBtn = h('button', 'icon-btn', '⤓');
     parkBtn.title = 'Ranger l\'espace : le robot attend en haut, les terminaux continuent';
     const maxBtn = h('button', 'icon-btn', '⤢');
-    maxBtn.title = 'Agrandir / restaurer (Ctrl+Maj+M)';
+    shortcutTitle(maxBtn, 'Agrandir / restaurer', 'maximize');
     const closeBtn = h('button', 'icon-btn danger', '✕');
     closeBtn.title = "Fermer l'espace (arrête ses terminaux)";
-    head.append(robotEl, iconEl, nameEl, soundEl, remoteEl, tabsWrap, addWrap, parkBtn, maxBtn, closeBtn);
+    head.append(robotEl, iconEl, nameEl, soundEl, remoteEl, tabsWrap, addWrap, promptBtn, parkBtn, maxBtn, closeBtn);
 
     const host = h('div', 'term-host');
     const empty = h('div', 'empty');
@@ -613,7 +671,7 @@
     const crewInfo = h('div', 'crew-info'); // display: contents, sauf pour le style « Étiquettes »
     crewInfo.append(crewName, crewTabs);
     crewItem.append(crewFace, crewIcon, crewInfo);
-    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, remoteEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, crewEl: crewItem, crewFace, crewTabs, crewName });
+    Object.assign(space, { el, head, robotEl, iconEl, crewIcon, nameEl, soundEl, remoteEl, tabsEl, tabsWrap, host, empty, emptyRobot, emptyKinds, emptyModels, promptBtn, crewEl: crewItem, crewFace, crewTabs, crewName });
     applyBot(space);
     applyIcon(space);
     updateSoundBadge(space);
@@ -750,7 +808,7 @@
       '-',
       space.parked ? { label: 'Ressortir l\'espace', icon: '⤒', action: () => unparkSpace(space) } : { label: 'Ranger l\'espace', icon: '⤓', action: () => parkSpace(space) },
       { label: space.asleep ? 'Réveiller le robot' : 'Endormir le robot (barre des robots)', icon: '💤', hint: 'double-clic', action: () => toggleSleep(space) },
-      !space.parked && { label: maximized === space ? 'Restaurer' : 'Agrandir', icon: '⤢', hint: 'Ctrl+Maj+M', action: () => toggleMaximize(space) },
+      !space.parked && { label: maximized === space ? 'Restaurer' : 'Agrandir', icon: '⤢', hint: shortcutHint('maximize'), action: () => toggleMaximize(space) },
       !space.parked && { label: 'Ancrer', icon: '⊞', submenu: ['left', 'right', 'top', 'bottom'].map((side) => ({ label: { left: 'Tout à gauche', right: 'Tout à droite', top: 'Tout en haut', bottom: 'Tout en bas' }[side], action: () => { Layout.dock(space.id, null, side); renderLayout(); save(); } })) },
       '-',
       { label: 'Fermer l\'espace', icon: '✕', danger: true, action: async () => { if (!space.tabs.length || await UI.confirm('Fermer l\'espace ?', `Les ${space.tabs.length} onglet(s) de « ${esc(space.name)} » seront fermés et leurs terminaux arrêtés.`, { ok: 'Fermer', danger: true })) closeSpace(space); } },
@@ -981,7 +1039,7 @@
     const i = screens.indexOf(sc);
     return [
       { title: sc.name },
-      { label: 'Afficher', icon: '▣', hint: `Ctrl+Alt+${i + 1}`, disabled: sc.id === activeScreenId, action: () => switchScreen(sc.id) },
+      { label: 'Afficher', icon: '▣', hint: shortcutHint(`screen${i + 1}`), disabled: sc.id === activeScreenId, action: () => switchScreen(sc.id) },
       { label: 'Renommer…', icon: '✎', action: async () => { const v = await UI.prompt('Nom de l\'écran', sc.name); if (v) { sc.name = v; renderCrew(); save(); } } },
       { label: sc.folded ? 'Déplier dans la barre' : 'Plier dans la barre', icon: sc.folded ? '▸' : '◂', action: () => toggleFoldScreen(sc) },
       { label: 'Couleur de l\'écran…', icon: `<span class="sc-dot" style="background:${screenColor(sc)}"></span>`, action: () => pickScreenColor(sc, crewEl.querySelector(`[data-screen-id="${sc.id}"]`) || crewEl) },
@@ -1036,7 +1094,10 @@
       renderCrew();
       save();
     }
-    if (focus && space.activeTab && !restoring) { mountTab(space.activeTab); kindOf(space.activeTab).focus(space.activeTab); }
+    if (focus && space.activeTab && !restoring) {
+      mountTab(space.activeTab);
+      if (!CommandPalette.isOpen) kindOf(space.activeTab).focus(space.activeTab);
+    }
   }
 
   function toggleMaximize(space) {
@@ -1060,7 +1121,7 @@
       const lab = h('button', 'screen-label', String(i + 1));
       lab.setAttribute('aria-label', `Set de zones ${i + 1} : ${sc.name}`);
       lab.setAttribute('aria-pressed', String(sc.id === activeScreenId));
-      lab.title = `${sc.name} (Ctrl+Alt+${i + 1}) · clic droit : options`;
+      shortcutTitle(lab, sc.name, `screen${i + 1}`, ' · clic droit : options');
       lab.addEventListener('click', () => switchScreen(sc.id));
       // Glisser le numéro d'un écran pour le réordonner
       lab.draggable = true;
@@ -1818,7 +1879,7 @@
     historyList.textContent = I18n.t('Chargement des messages…');
     historyPane.append(historyHead, historyList);
     robotPicker.append(controls, historyPane);
-    const loadHistory = paginatedSpeechHistory(space.rid, historyList, true, (count) => { clearHistory.disabled = !count; });
+    const loadHistory = paginatedSpeechHistory(space.rid, historyList, true, (count) => { clearHistory.disabled = !count; }, () => robotPicker.classList.add('hidden'));
     const refreshHistory = async (rid = space.rid) => {
       if (rid !== space.rid || robotPicker.classList.contains('hidden')) return;
       await loadHistory();
@@ -2058,7 +2119,7 @@
     const title = h('span', 'title');
     title.textContent = tab.title;
     const close = h('button', 'close', '✕');
-    close.title = "Fermer l'onglet (Ctrl+Maj+W)";
+    shortcutTitle(close, "Fermer l'onglet", 'tabClose');
     tabEl.append(icon, title, dot, close);
     tabEl.addEventListener('mousedown', (e) => {
       if (e.button === 1) e.preventDefault();
@@ -2306,7 +2367,7 @@
       '-',
       tab.kind === 'editor' ? { label: 'Enregistrer comme modèle d\'onglet', icon: '🧩', disabled: true } : TabModels.saveMenuItem('tab', () => TabModels.tabToModel(tab)),
       '-',
-      { label: 'Fermer', icon: '✕', hint: 'Ctrl+Maj+W', action: () => closeTab(tab) },
+      { label: 'Fermer', icon: '✕', hint: shortcutHint('tabClose'), action: () => closeTab(tab) },
       { label: 'Fermer les autres onglets', disabled: tab.space.tabs.length < 2, action: () => tab.space.tabs.filter((t) => t !== tab).forEach((t) => closeTab(t)) },
     ];
   }
@@ -2356,8 +2417,7 @@
     for (const s of spaces) {
       const t = s.tabs.find((x) => x.kind === 'editor' && x.file && Platform.pathKey(x.file) === Platform.pathKey(file));
       if (t) {
-        if (s.parked) unparkSpace(s);
-        activateTab(t, true);
+        revealTab(t);
         if (line) setTimeout(() => TabKinds.editor.reveal(t, line), 50);
         return t;
       }
@@ -2391,6 +2451,7 @@
       t.pane.classList.toggle('active', on);
     }
     space.activeTab = tab;
+    space.promptBtn.disabled = tab.kind !== 'terminal';
     tab.el.classList.remove('unread');
     tab.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     renderCrewTabs(space);
@@ -2403,7 +2464,7 @@
       if (restoring || !tab.space.tabs.includes(tab) || tab.space.activeTab !== tab) return;
       mountTab(tab);
       kindOf(tab).activate(tab);
-      if (focus) { setActiveSpace(tab.space, false); kindOf(tab).focus(tab); }
+      if (focus) { setActiveSpace(tab.space, false); if (!CommandPalette.isOpen) kindOf(tab).focus(tab); }
     });
     save();
   }
@@ -2438,7 +2499,10 @@
     mountTab(tab);
     kindOf(tab).resize(tab);
   }
-  function updateEmpty(space) { space.empty.classList.toggle('hidden', space.tabs.length > 0); }
+  function updateEmpty(space) {
+    space.empty.classList.toggle('hidden', space.tabs.length > 0);
+    space.promptBtn.disabled = space.activeTab?.kind !== 'terminal';
+  }
 
   // ---------- Types d'onglets / d'espaces ----------
   function allFavorites() {
@@ -2551,7 +2615,7 @@
     return [
       { title: space ? `Ajouter à ${space.name}` : 'Nouvel espace' },
       { label: 'Navigateur', icon: '🌐', action: () => openKind(space, 'browser') },
-      { label: 'Terminal', icon: KIND_INFO.terminal.icon, hint: space ? 'Ctrl+Maj+T' : 'Ctrl+Maj+N', action: () => openKind(space, 'terminal') },
+      { label: 'Terminal', icon: KIND_INFO.terminal.icon, hint: shortcutHint(space ? 'tabNew' : 'spaceNew'), action: () => openKind(space, 'terminal') },
       { label: 'Terminal (choisir le shell)', icon: '', submenu: shells.map((sh) => ({ label: sh.label, checked: sh.id === (Settings.data.defaultShell || shells[0]?.id), action: () => openKind(space, 'terminal', { shellId: sh.id }) })) },
       { label: 'Depuis un modèle d\'onglet', icon: '🧩', hint: models.length ? String(models.length) : '', submenu: TabModels.menuItems(space) },
       { label: space ? 'Onglets d\'un modèle de zone' : 'Depuis un modèle de zone', icon: '🗂', hint: zoneCount ? String(zoneCount) : '', submenu: TabModels.zoneMenuItems(space) },
@@ -2631,6 +2695,38 @@
   }
 
   // ---------- Actions et raccourcis ----------
+  function shortcutHint(id) {
+    const action = Shortcuts.actions.find((action) => action.id === id);
+    return action ? Shortcuts.bindings(action, Settings.data.shortcuts).map((binding) => Shortcuts.format(binding, Platform.isMac)).join(' / ') : '';
+  }
+  function shortcutTitle(node, label, id, suffix = '') {
+    node.dataset.shortcutLabel = label;
+    node.dataset.shortcutAction = id;
+    node.dataset.shortcutSuffix = suffix;
+    const hint = shortcutHint(id);
+    node.title = I18n.t(label) + (hint ? ` (${hint})` : '') + I18n.t(suffix);
+  }
+
+  function refreshShortcutHelp() {
+    const table = $('#help table');
+    table.querySelectorAll('[data-global-shortcut]').forEach((row) => row.remove());
+    const first = table.querySelector('tr');
+    for (const action of Shortcuts.actions.filter((action) => !/^(zone|screen)[1-9]$/.test(action.id))) {
+      const row = h('tr');
+      row.dataset.globalShortcut = action.id;
+      const keys = h('td');
+      keys.textContent = shortcutHint(action.id) || I18n.t('Désactivé');
+      const label = h('td');
+      label.textContent = I18n.t(action.label);
+      row.append(keys, label); first.parentNode.insertBefore(row, first);
+    }
+    $('#btn-settings').title = `${I18n.t('Paramètres')} (${shortcutHint('settings')})`;
+    $('#btn-new-screen').title = I18n.t('Créer un set de zones (clic droit : depuis un modèle d’écran)') + ` · ${shortcutHint('screenPrevious')} / ${shortcutHint('screenNext')}`;
+    const nodes = new Set(document.querySelectorAll('[data-shortcut-action]'));
+    for (const space of spaces) space.el.querySelectorAll('[data-shortcut-action]').forEach((node) => nodes.add(node));
+    for (const node of nodes) shortcutTitle(node, node.dataset.shortcutLabel, node.dataset.shortcutAction, node.dataset.shortcutSuffix);
+  }
+
   function newSpace() { openKind(null, 'terminal'); }
 
   function cycleTab(dir) {
@@ -2641,7 +2737,8 @@
   }
 
   function focusSpaceAt(i) {
-    const s = spaces[(i + spaces.length) % spaces.length];
+    const visible = visibleSpaces();
+    const s = visible[(i + visible.length) % visible.length];
     if (!s) return;
     if (s.parked) return unparkSpace(s);
     if (maximized) { maximized = s; renderLayout(); }
@@ -2649,29 +2746,67 @@
     wave(s);
   }
 
-  window.addEventListener('keydown', (e) => {
-    const primary = Platform.primary(e);
-    const cs = primary && e.shiftKey && !e.altKey;
-    let handled = true;
+  function runShortcut(action) {
     const tab = activeSpace?.activeTab;
-    if (e.key === 'Escape' && Settings.isOpen) Settings.close();
-    else if (e.key === 'Escape' && !$('#help').classList.contains('hidden')) $('#help').classList.add('hidden');
-    else if (primary && !e.shiftKey && !e.altKey && e.key === ',') Settings.open();
-    else if (primary && !e.shiftKey && !e.altKey && e.code === 'KeyO') pickWorkspace();
-    else if (cs && e.code === 'KeyN') newSpace();
-    else if (cs && e.code === 'KeyT') activeSpace ? openTab(activeSpace) : newSpace();
-    else if (cs && e.code === 'KeyE') openKind(activeSpace, 'explorer');
-    else if (cs && e.code === 'KeyW') tab && closeTab(tab);
-    else if (cs && e.code === 'KeyM') activeSpace && toggleMaximize(activeSpace);
-    else if (cs && e.code === 'KeyL') showLayoutPicker($('#btn-layout'));
-    else if (e.ctrlKey && !e.altKey && e.key === 'Tab') cycleTab(e.shiftKey ? -1 : 1);
-    else if (primary && e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) { const sc = screens[+e.code.slice(5) - 1]; if (sc) switchScreen(sc.id); }
-    else if (primary && e.altKey && !e.shiftKey && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) { const i = screens.findIndex((sc) => sc.id === activeScreenId); const sc = screens[(i + (e.code === 'ArrowRight' ? 1 : -1) + screens.length) % screens.length]; switchScreen(sc.id); }
-    else if (e.altKey && !primary && /^Digit[1-9]$/.test(e.code)) focusSpaceAt(+e.code.slice(5) - 1);
-    else if (e.altKey && !primary && e.code === 'ArrowLeft') focusSpaceAt(spaces.indexOf(activeSpace) - 1);
-    else if (e.altKey && !primary && e.code === 'ArrowRight') focusSpaceAt(spaces.indexOf(activeSpace) + 1);
+    const commands = {
+      palette: () => CommandPalette.toggle(),
+      settings: () => Settings.open(),
+      workspaceOpen: pickWorkspace,
+      workspacePrevious: () => api.navigateWorkspace(-1),
+      workspaceNext: () => api.navigateWorkspace(1),
+      spaceNew: newSpace,
+      tabNew: () => activeSpace ? openTab(activeSpace) : newSpace(),
+      explorer: () => openKind(activeSpace, 'explorer'),
+      prompt: () => { if (tab?.kind === 'terminal') { mountTab(tab); PromptEditor.open(tab); } },
+      tabClose: () => tab && closeTab(tab),
+      maximize: () => activeSpace && toggleMaximize(activeSpace),
+      layout: () => showLayoutPicker($('#btn-layout')),
+      tabPrevious: () => cycleTab(-1),
+      tabNext: () => cycleTab(1),
+      zonePrevious: () => focusSpaceAt(visibleSpaces().indexOf(activeSpace) - 1),
+      zoneNext: () => focusSpaceAt(visibleSpaces().indexOf(activeSpace) + 1),
+      screenPrevious: () => cycleScreen(-1),
+      screenNext: () => cycleScreen(1),
+    };
+    if (commands[action]) commands[action]();
+    else if (/^zone[1-9]$/.test(action)) focusSpaceAt(+action.slice(4) - 1);
+    else if (/^screen[1-9]$/.test(action)) {
+      const screen = screens[+action.slice(6) - 1];
+      if (screen) switchScreen(screen.id);
+    }
+  }
+
+  function cycleScreen(dir) {
+    const index = screens.findIndex((screen) => screen.id === activeScreenId);
+    const screen = screens[(index + dir + screens.length) % screens.length];
+    if (screen) switchScreen(screen.id);
+  }
+
+  api.onShortcut((action) => {
+    if (action === 'palette' && !Settings.isOpen) CommandPalette.toggle();
+    else if (!Settings.isOpen && !CommandPalette.isOpen && !document.querySelector('.prompt-overlay')) runShortcut(action);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (Settings.isOpen) {
+      if (e.target.closest?.('[data-recording]')) return;
+      if (e.key === 'Escape') { Settings.close(); e.preventDefault(); e.stopImmediatePropagation(); }
+      return;
+    }
+    const action = Shortcuts.match(e, Settings.data.shortcuts, Platform.isMac);
+    if (action === 'palette') {
+      if (!e.repeat) CommandPalette.toggle();
+      e.preventDefault(); e.stopImmediatePropagation();
+      return;
+    }
+    if (CommandPalette.isOpen) return;
+    if (e.target.closest?.('.prompt-overlay')) return;
+    let handled = true;
+    if (e.key === 'Escape' && !$('#help').classList.contains('hidden')) $('#help').classList.add('hidden');
+    else if (e.target.closest?.('.overlay, .menu')) return;
+    else if (action) { if (!e.repeat || !['workspacePrevious', 'workspaceNext'].includes(action)) runShortcut(action); }
     else handled = false;
-    if (handled) { e.preventDefault(); e.stopPropagation(); }
+    if (handled) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
 
   $('#btn-new-space').addEventListener('click', (e) => { e.stopPropagation(); UI.menu(kindItems(null), $('#btn-new-space')); });
@@ -2750,6 +2885,7 @@
   $('#btn-settings').addEventListener('click', () => Settings.open());
   $('#btn-help').addEventListener('click', () => $('#help').classList.remove('hidden'));
   $('#help-close').addEventListener('click', () => $('#help').classList.add('hidden'));
+  $('#help-shortcuts').addEventListener('click', () => { $('#help').classList.add('hidden'); Settings.open('shortcuts'); });
   $('#help').addEventListener('mousedown', (e) => { if (e.target.id === 'help') $('#help').classList.add('hidden'); });
   wsBadge.addEventListener('click', workspaceMenu);
 
@@ -2760,6 +2896,7 @@
     document.body.dataset.toolAnim = Settings.data.toolAnim || 'tap';
   }
   Settings.onChange((changed) => {
+    if (changed.includes('shortcuts') || changed.includes('language')) refreshShortcutHelp();
     if (changed.includes('theme')) {
       Themes.apply(Settings.data.theme);
       spaces.forEach(applyBot);
@@ -2787,6 +2924,31 @@
       activateTab(tab, true);
     },
     get currentScreen() { return curScreen(); },
+    get screens() { return screens; },
+    get paletteKinds() { return Object.entries(KIND_INFO).map(([id, info]) => ({ id, ...info })); },
+    tabIconHtml,
+    revealTab,
+    revealSpace(space) {
+      if (!spaces.includes(space)) throw new Error('Cette zone n’existe plus');
+      ensureScreen(space);
+      if (space.parked || space.asleep) unparkSpace(space);
+      if (maximized && maximized !== space) { maximized = space; renderLayout(); }
+      setActiveSpace(space, true);
+    },
+    switchScreen,
+    shortcutHint,
+    createPaletteScreen: addScreen,
+    createPaletteSpace(screenId) {
+      if (!screens.some((sc) => sc.id === screenId)) throw new Error('Cet écran n’existe plus');
+      switchScreen(screenId);
+      if (maximized) { maximized = null; renderLayout(); }
+      const space = createSpace({ screenId });
+      placeSpace(space);
+      setActiveSpace(space, true);
+      save();
+      return space;
+    },
+    ensureSpace,
     refreshCrew: () => spaces.forEach(renderCrewTabs),
     setWorkspace: (ws) => { if (ws) { ctx.ws = ws; renderWorkspace(); spaces.forEach(fillEmpty); } },
     get activeSpace() { return activeSpace; },
@@ -2794,6 +2956,7 @@
     get ws() { return ctx.ws; },
     get scope() { return 'term:' + (Platform.pathKey(ctx.ws?.root) || 'global'); },
   };
+  CommandPalette.init();
 
   // ---------- Démarrage ----------
   // Écran de chargement (#boot, dans index.html) : visible dès le premier rendu, retiré une fois l'état restauré.
@@ -2815,6 +2978,7 @@
     try { document.getElementById('boot-bot').innerHTML = Robot.generate(ctx.ws?.seed || Robot.randomSeed(), { legs: true }).svg; } catch {}
     bootStep('Chargement des paramètres');
     await Settings.load();
+    refreshShortcutHelp();
     I18n.setLang(Settings.data.language);
     Themes.apply(Settings.data.theme);
     applyRobotSettings();

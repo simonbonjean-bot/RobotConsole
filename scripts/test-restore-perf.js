@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
       const say = () => {};
       const activateTab = (tab) => { tab.space.activeTab = tab; if (!restoring) mountTab(tab); };
       const makeSpace = () => {
-        const space = { tabs: [], tabsEl: h('div'), host: h('div'), empty: h('div') };
+        const space = { tabs: [], tabsEl: h('div'), host: h('div'), empty: h('div'), promptBtn: h('button') };
         document.body.append(space.tabsEl, space.host);
         spaces.push(space);
         return space;

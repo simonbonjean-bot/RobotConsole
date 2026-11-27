@@ -11,10 +11,11 @@ function pipeFor(userData) {
 }
 
 class Speech {
-  constructor({ userData, deliver }) {
+  constructor({ userData, deliver, openFile }) {
     this.pipe = pipeFor(userData);
     this.historyFile = path.join(userData, 'speech-history.jsonl');
     this.deliver = deliver;
+    this.openFile = openFile;
     this.windows = new Map();
     this.sockets = new Set();
     this.historyQueue = Promise.resolve();
@@ -45,6 +46,12 @@ class Speech {
   record(entry) {
     if (typeof entry.text !== 'string' || !entry.text.trim() || entry.text.length > 4000) throw new Error('Message vide ou trop long (4000 caractères maximum).');
     const record = { id: crypto.randomUUID(), at: new Date().toISOString(), rid: entry.rid, name: entry.name, text: entry.text, source: entry.source || 'app' };
+    if (entry.tab !== undefined) {
+      const tab = entry.tab;
+      if (!tab || typeof tab.id !== 'string' || !tab.id || typeof tab.title !== 'string' ||
+        typeof tab.icon !== 'string' || (tab.session !== undefined && typeof tab.session !== 'string')) throw new Error('Onglet du message invalide.');
+      record.tab = { id: tab.id, session: tab.session, title: tab.title, icon: tab.icon };
+    }
     return this.historyOperation(async () => {
       await fs.promises.mkdir(path.dirname(this.historyFile), { recursive: true });
       const file = await fs.promises.open(this.historyFile, 'a+', 0o600);
@@ -198,11 +205,21 @@ class Speech {
 
   async handle(message) {
     if (message.action === 'list') return this.list().map(({ rid, name }) => ({ rid, name }));
+    if (message.action === 'open' && (typeof message.session !== 'string' || !message.session)) throw new Error('Session terminal requise.');
     const target = this.target(message);
     if (message.action === 'history') return this.history(target.rid);
+    if (message.action === 'open') {
+      if (!target.sessions.includes(message.session)) throw new Error('Session terminal introuvable.');
+      if (typeof message.file !== 'string' || !path.isAbsolute(message.file) || message.file.includes('\0')) throw new Error('Chemin de fichier absolu requis.');
+      const stat = await fs.promises.stat(message.file);
+      if (!stat.isFile()) throw new Error('Le chemin ne désigne pas un fichier.');
+      await fs.promises.access(message.file, fs.constants.R_OK);
+      await this.openFile(target, message.file);
+      return { rid: target.rid, name: target.name, file: message.file };
+    }
     if (message.action !== 'say') throw new Error('Action inconnue.');
     if (typeof message.text !== 'string' || !message.text.trim() || message.text.length > 4000) throw new Error('Message vide ou trop long (4000 caractères maximum).');
-    await this.deliver(target, message.text);
+    await this.deliver(target, message.text, target.sessions.includes(message.session) ? message.session : undefined);
     return { rid: target.rid, name: target.name };
   }
 
